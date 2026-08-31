@@ -1,14 +1,14 @@
-package dev.sjw.api.translation;
+package dev.sjw.common.translate;
 
-import dev.sjw.api.kb.KnowledgeBase;
-import dev.sjw.api.kb.LinkResult;
-import dev.sjw.api.ner.NerClient;
-import dev.sjw.api.ner.NerEntity;
-import dev.sjw.api.translation.TranslationDtos.EntityDto;
-import dev.sjw.api.translation.TranslationDtos.LlmOutput;
-import dev.sjw.api.translation.TranslationDtos.Meta;
-import dev.sjw.api.translation.TranslationDtos.TranslationResponse;
-import dev.sjw.api.translation.TranslationDtos.UncertainSpan;
+import dev.sjw.common.kb.KnowledgeBase;
+import dev.sjw.common.kb.LinkResult;
+import dev.sjw.common.ner.NerClient;
+import dev.sjw.common.ner.NerEntity;
+import dev.sjw.common.translate.TranslationDtos.EntityDto;
+import dev.sjw.common.translate.TranslationDtos.LlmOutput;
+import dev.sjw.common.translate.TranslationDtos.Meta;
+import dev.sjw.common.translate.TranslationDtos.TranslationResponse;
+import dev.sjw.common.translate.TranslationDtos.UncertainSpan;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;

@@ -1,6 +1,13 @@
 spring:
   application:
     name: sjw-api
+  datasource:
+    url: jdbc:postgresql://localhost:5433/sjw
+    username: sjw
+    password: sjw
+  sql:
+    init:
+      mode: always   # schema.sql (CREATE IF NOT EXISTS — 멱등)
   ai:
     google:
       genai:

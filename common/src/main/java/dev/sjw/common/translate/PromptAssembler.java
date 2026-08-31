@@ -1,6 +1,6 @@
-package dev.sjw.api.translation;
+package dev.sjw.common.translate;
 
-import dev.sjw.api.kb.KbPerson;
+import dev.sjw.common.kb.KbPerson;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;

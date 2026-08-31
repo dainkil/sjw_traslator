@@ -1,4 +1,4 @@
-package dev.sjw.api.ner;
+package dev.sjw.common.ner;
 
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;

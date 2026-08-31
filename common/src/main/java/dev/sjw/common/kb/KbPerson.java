@@ -1,4 +1,4 @@
-package dev.sjw.api.kb;
+package dev.sjw.common.kb;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;

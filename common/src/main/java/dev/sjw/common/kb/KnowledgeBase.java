@@ -1,4 +1,4 @@
-package dev.sjw.api.kb;
+package dev.sjw.common.kb;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;

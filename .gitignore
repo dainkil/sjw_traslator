@@ -30,4 +30,5 @@ malmoi/
 .gradle/
 api/build/
 worker/build/
+common/build/
 *.class

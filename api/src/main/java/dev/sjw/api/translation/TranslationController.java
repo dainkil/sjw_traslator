@@ -1,7 +1,8 @@
 package dev.sjw.api.translation;
 
-import dev.sjw.api.translation.TranslationDtos.TranslateRequest;
-import dev.sjw.api.translation.TranslationDtos.TranslationResponse;
+import dev.sjw.common.translate.TranslationDtos.TranslateRequest;
+import dev.sjw.common.translate.TranslationDtos.TranslationResponse;
+import dev.sjw.common.translate.TranslationService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -19,8 +20,8 @@ public class TranslationController {
     }
 
     /**
-     * M1 임시 동기 엔드포인트 — 단계별 지연 실측용.
-     * M2에서 202 + jobId 비동기(큐 발행)로 전환되며 이 경로는 제거된다 (ADR-001).
+     * M1 동기 엔드포인트 — 단계별 지연 실측용으로 유지.
+     * 비동기 경로(202 + jobId)는 M2에서 추가된다 (ADR-001).
      */
     @PostMapping("/sync")
     public TranslationResponse translateSync(@Valid @RequestBody TranslateRequest req) {

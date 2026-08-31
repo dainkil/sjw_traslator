@@ -1,0 +1,34 @@
+spring:
+  application:
+    name: sjw-worker
+  ai:
+    google:
+      genai:
+        api-key: ${GEMINI_API_KEY}
+        chat:
+          options:
+            model: ${GEMINI_MODEL:gemini-3.1-flash-lite}
+            temperature: 0.2
+  datasource:
+    url: jdbc:postgresql://localhost:5433/sjw
+    username: sjw
+    password: sjw
+  sql:
+    init:
+      mode: never   # 스키마는 api가 초기화 (api/src/main/resources/schema.sql)
+
+server:
+  port: 8081
+
+sjw:
+  ner:
+    url: ${NER_URL:http://localhost:8100}
+  kb:
+    dir: ${KB_DIR:../kb}
+    version: injo-v1
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,prometheus

@@ -1,4 +1,4 @@
-package dev.sjw.api.translation;
+package dev.sjw.common.translate;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;

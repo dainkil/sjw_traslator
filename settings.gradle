@@ -1,0 +1,9 @@
+rootProject.name = 'sjw-translator'
+
+dependencyResolutionManagement {
+    repositories {
+        mavenCentral()
+    }
+}
+
+include 'common', 'api', 'worker'

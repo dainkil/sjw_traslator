@@ -1,4 +1,4 @@
-package dev.sjw.api.kb;
+package dev.sjw.common.kb;
 
 import java.util.List;
 

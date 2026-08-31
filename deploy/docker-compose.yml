@@ -1,0 +1,31 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: sjw-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: sjw-postgres
+    environment:
+      POSTGRES_DB: sjw
+      POSTGRES_USER: sjw
+      POSTGRES_PASSWORD: sjw
+    ports:
+      - "5433:5432"   # 로컬 postgresql@17(5432)과 충돌 방지
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sjw -d sjw"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  pgdata:
