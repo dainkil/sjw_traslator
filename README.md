@@ -26,7 +26,7 @@
 - **템플릿 슬롯 캐싱** — 의례적 정형문(`上曰`, `傳曰` 등)의 구조 일치 캐시로 LLM 호출 자체를 제거
 - **비용을 SLI로, 예산을 서킷브레이커로** — 예산 소진율 기반 3단계 성능 저하
 
-전체 설계·마일스톤·수용 기준: [`PROJECT_PLAN.md`](PROJECT_PLAN.md) · 결정 기록: [`docs/adr/`](docs/adr/)
+전체 설계·마일스톤·수용 기준: [`PROJECT_PLAN.md`](PROJECT_PLAN.md) · 진행 상황·재개 가이드: [`PROGRESS.md`](PROGRESS.md) · 결정 기록: [`docs/adr/`](docs/adr/)
 
 ## 아키텍처
 
