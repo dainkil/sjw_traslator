@@ -29,10 +29,10 @@ class Params:
     # --- 문장 통계: malmoi/Merged_Corpus_Final.json 62,476쌍 [실측 2026-08-31] ---
     avg_src_chars_per_sentence: float = 126.1  # [실측] 원문(한문) 평균 글자 수
     out_per_src_char_ratio: float = 2.114      # [실측] 한국어 번역문/한문 원문 길이비
-    # --- 토큰 환산 [추정 — M1 countTokens로 교체] ---
-    tokens_per_src_char: float = 1.3   # [추정] 한자 1자당 토큰 (CJK는 1자≥1토큰 가정)
-    tokens_per_out_char: float = 0.8   # [추정] 한국어 1자당 토큰
-    prompt_overhead_tokens: float = 1200  # [추정] 페르소나+원칙+예시+KB블록 (docs/prompts.md ~900자 + KB 주입)
+    # --- 토큰 환산 [실측 2026-08-31 — countTokens, 골든셋 300문장, measure_tokens.py] ---
+    tokens_per_src_char: float = 0.954   # [실측] 한자 원문 토큰/글자 (중앙값 0.940)
+    tokens_per_out_char: float = 0.630   # [실측] 한국어 번역문 토큰/글자 (중앙값 0.621)
+    prompt_overhead_tokens: float = 448  # [실측] 페르소나 고정부. KB블록 주입분은 미포함(문장별 가변, 추정 +50~150)
     # --- 운영 가정 ---
     retry_overhead: float = 0.05   # [추정] 재시도로 인한 호출량 증가율 (429/5xx)
     cache_hit_rate: float = 0.0    # M3 전 기준. 실측 후 갱신
@@ -92,7 +92,7 @@ def main():
           f"concurrency={p.concurrency}\n")
     for k, v in run(p).items():
         print(f"{k:28s} {v:>18,.1f}")
-    print("\n[주의] 토큰 환산·지연·환율은 (추정). M1 실측 후 이 주석을 제거할 것.")
+    print("\n[주의] 토큰 환산은 실측(2026-08-31). 지연·환율·재시도율은 (추정) — M1/M2 실측 후 갱신.")
 
 
 if __name__ == "__main__":
