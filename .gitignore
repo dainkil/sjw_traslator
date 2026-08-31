@@ -1,0 +1,30 @@
+# OS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# 환경 변수 / 비밀
+.env
+.env.*
+*.key
+
+# 모델 가중치 (HuggingFace/ONNX 아티팩트는 커밋하지 않음)
+*.safetensors
+*.onnx
+pytorch_model*.bin
+
+# 대용량 원천 데이터 (재생성 방법은 kb/README.md 참조)
+malmoi/
+
+# IDE
+.idea/
+.vscode/
+
+# 빌드 산출물
+api/build/
+worker/build/
+*.class
