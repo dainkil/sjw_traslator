@@ -1,0 +1,16 @@
+[project]
+name = "sjw-ner-server"
+version = "0.1.0"
+description = "SillokBERT-NER token-classification inference server (ONNX INT8, CPU)"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "onnxruntime>=1.19",
+    "transformers>=4.44",   # 토크나이저 + 변환 검증용
+    "optimum[onnxruntime]>=1.21",  # HF → ONNX export + ORT 모델 래퍼
+    "torch>=2.4",           # export 및 변환 전후 비교 기준 (서빙 런타임에서는 미사용)
+]
+
+[dependency-groups]
+dev = ["httpx>=0.27", "pytest>=8.0"]

@@ -10,12 +10,14 @@ venv/
 # 환경 변수 / 비밀
 .env
 .env.*
+!.env.example
 *.key
 
 # 모델 가중치 (HuggingFace/ONNX 아티팩트는 커밋하지 않음)
 *.safetensors
 *.onnx
 pytorch_model*.bin
+ner-server/models/
 
 # 대용량 원천 데이터 (재생성 방법은 kb/README.md 참조)
 malmoi/
