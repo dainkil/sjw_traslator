@@ -36,15 +36,19 @@ public class StreamConsumer implements SmartLifecycle {
 
     private final StringRedisTemplate redis;
     private final JobProcessor processor;
+    private final long paceMs;
     private final String consumerName = "worker-" + ProcessHandle.current().pid();
 
     private volatile boolean running = false;
     private Thread thread;
     private long loops = 0;
 
-    public StreamConsumer(StringRedisTemplate redis, JobProcessor processor) {
+    public StreamConsumer(StringRedisTemplate redis, JobProcessor processor,
+                          @org.springframework.beans.factory.annotation.Value("${sjw.worker.pace-ms:3000}")
+                          long paceMs) {
         this.redis = redis;
         this.processor = processor;
+        this.paceMs = paceMs;
     }
 
     @Override
@@ -110,6 +114,8 @@ public class StreamConsumer implements SmartLifecycle {
         if (ack) {
             redis.opsForStream().acknowledge(QueueKeys.STREAM, QueueKeys.CONSUMER_GROUP, record.getId());
         }
+        // 임시 고정 페이싱 (무료 티어 RPM 보호). S5에서 적응형 토큰 버킷으로 대체된다.
+        sleep(paceMs);
     }
 
     /** 30초 이상 idle인 pending 메시지를 내 소유로 claim해 재처리한다. */
