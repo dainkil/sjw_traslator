@@ -23,6 +23,17 @@ server:
   port: 8081
 
 sjw:
+  # 적응형 rate control (ADR-017). 이 값들은 '운영 rate'가 아니라 탐색의 경계·속도다 —
+  # 실제 RPM은 429 피드백으로 스스로 정해진다. 시작값이 틀린 것은 설계상 허용된다.
+  rate:
+    initial-rpm: 20             # 탐색 시작점 (S4까지 쓰던 고정 페이싱 3초 = 20 RPM과 같은 자리에서 출발)
+    min-rpm: 2                  # 429가 계속돼도 여기까지만 내려간다
+    max-rpm: 60                 # 성공이 계속돼도 여기까지만 올라간다
+    burst-seconds: 10           # 버킷 용량 = 10초치 발행량 (rpm*10/60, 최소 1)
+    decrease-factor: 0.5        # 429 1회 → rate 절반 (AIMD의 MD)
+    successes-to-increase: 5    # 연속 5회 성공 → +1 RPM (AIMD의 AI)
+    increase-step: 1
+    max-wait-ms: 120000         # permit 대기 상한. 넘으면 미ACK 재전달로 큐가 백오프를 흡수
   ner:
     url: ${NER_URL:http://localhost:8100}
   kb:

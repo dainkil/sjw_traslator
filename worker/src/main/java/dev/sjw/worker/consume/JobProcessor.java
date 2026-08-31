@@ -12,6 +12,9 @@ import dev.sjw.common.translate.TranslationService;
 import dev.sjw.worker.failure.DlqPublisher;
 import dev.sjw.worker.failure.ErrorClass;
 import dev.sjw.worker.failure.FailureClassifier;
+import dev.sjw.worker.rate.AdaptiveRateLimiter;
+import dev.sjw.worker.rate.RateLimitWaitTimeoutException;
+import dev.sjw.worker.rate.RetryAfterHint;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
@@ -35,6 +38,8 @@ import org.springframework.stereotype.Component;
  *  - Resilience4j Retry: transient(순간 429/5xx/타임아웃/파싱)만 즉시 1회 재시도, 지수 backoff + jitter.
  *    (Spring AI 내장 재시도는 yml에서 1회로 꺼서 이중 재시도를 막는다)
  *  - CircuitBreaker: 연속 장애 시 open → 호출 단락, 메시지는 미ACK 재전달로 자연 백오프.
+ *  - AdaptiveRateLimiter: 호출 직전 permit 획득(페이싱), 429는 rate 하향 피드백으로 되먹인다 (ADR-017).
+ *    재시도마다 permit을 다시 얻어야 하므로 리미터는 Retry 안쪽에 들어간다.
  */
 @Component
 public class JobProcessor {
@@ -51,23 +56,29 @@ public class JobProcessor {
     private final TranslationService translationService;
     private final FailureClassifier classifier;
     private final DlqPublisher dlq;
+    private final AdaptiveRateLimiter rateLimiter;
     private final Retry retry;
     private final CircuitBreaker breaker;
 
     public JobProcessor(TranslationJobRepository jobs, CostLedgerRepository ledger,
                         BatchJobRepository batches, TranslationService translationService,
-                        FailureClassifier classifier, DlqPublisher dlq) {
+                        FailureClassifier classifier, DlqPublisher dlq,
+                        AdaptiveRateLimiter rateLimiter) {
         this.jobs = jobs;
         this.ledger = ledger;
         this.batches = batches;
         this.translationService = translationService;
         this.classifier = classifier;
         this.dlq = dlq;
+        this.rateLimiter = rateLimiter;
         this.retry = Retry.of("llm", RetryConfig.custom()
                 .maxAttempts(2)
                 .intervalFunction(IntervalFunction.ofExponentialRandomBackoff(
                         Duration.ofSeconds(2), 2.0, 0.5))
                 .retryOnException(e -> {
+                    if (e instanceof RateLimitWaitTimeoutException) {
+                        return false; // 아직 호출조차 못 함 — 재시도가 아니라 재전달로 넘긴다
+                    }
                     ErrorClass c = classifier.classify(e);
                     // QUOTA_DAILY/SPEND_CAP은 즉시 재시도해봐야 quota만 두드린다 — 재시도 금지
                     return c.transientRetry() && c != ErrorClass.PARSE_ERROR;
@@ -78,6 +89,9 @@ public class JobProcessor {
                 .failureRateThreshold(50)
                 .waitDurationInOpenState(Duration.ofSeconds(30))
                 .ignoreException(e -> {
+                    if (e instanceof RateLimitWaitTimeoutException) {
+                        return true; // provider 건강과 무관 (우리 쪽 페이싱)
+                    }
                     ErrorClass c = classifier.classify(e);
                     // 영구 오류(파싱·필터·quota)는 provider 건강과 무관 — 브레이커 통계에서 제외
                     return c == ErrorClass.PARSE_ERROR || c == ErrorClass.CONTENT_FILTERED
@@ -98,9 +112,23 @@ public class JobProcessor {
         }
         jobs.tryMarkRunning(jobId);
 
+        String model = translationService.model();
+        Callable<TranslationResponse> guarded = () -> {
+            rateLimiter.acquire(model); // 버킷이 비어 있으면 여기서 대기 — 이것이 워커의 페이싱이다
+            try {
+                TranslationResponse r = translationService.translate(job.sourceText(), job.docYear());
+                rateLimiter.onSuccess(model);
+                return r;
+            } catch (Exception e) {
+                if (classifier.classify(e) == ErrorClass.RATE_LIMITED) {
+                    // 재시도 전에 rate를 먼저 내린다 — 같은 속도로 재시도하면 429만 더 맞는다
+                    rateLimiter.onRateLimited(model, RetryAfterHint.parse(e).orElse(null));
+                }
+                throw e;
+            }
+        };
         Callable<TranslationResponse> call = CircuitBreaker.decorateCallable(breaker,
-                Retry.decorateCallable(retry,
-                        () -> translationService.translate(job.sourceText(), job.docYear())));
+                Retry.decorateCallable(retry, guarded));
         try {
             TranslationResponse resp = call.call();
             ledger.record(jobId, resp.meta().model(),
@@ -111,6 +139,9 @@ public class JobProcessor {
             jobs.markSucceeded(jobId, resp.meta().model(), null /* cacheHit — M3 */,
                     resp.meta().tokensIn(), resp.meta().tokensOut(), resp.meta().kbVersion());
             return Outcome.ACK;
+        } catch (RateLimitWaitTimeoutException wait) {
+            log.warn("job {} permit 대기 상한 — 미ACK 재전달: {}", jobId, wait.getMessage());
+            return Outcome.REDELIVER;
         } catch (CallNotPermittedException open) {
             log.warn("서킷 open — job {} 미ACK 재전달 (자연 백오프)", jobId);
             return Outcome.REDELIVER;

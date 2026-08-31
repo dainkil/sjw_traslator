@@ -36,6 +36,11 @@ public class TranslationService {
         this.model = model;
     }
 
+    /** 현재 호출 대상 모델 id — rate 버킷 키와 원장 기록의 기준 (M4에서 티어 라우팅이 이 자리를 대체한다). */
+    public String model() {
+        return model;
+    }
+
     public TranslationResponse translate(String text, Integer year) {
         long start = System.nanoTime();
         Map<String, Long> lat = new LinkedHashMap<>();
