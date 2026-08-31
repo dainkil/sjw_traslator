@@ -10,7 +10,8 @@ spring:
         api-key: ${GEMINI_API_KEY}
         chat:
           options:
-            model: gemini-2.5-flash
+            # 무료 티어 운영(ADR-016): 실제 모델은 GEMINI_MODEL 환경변수로 주입
+            model: ${GEMINI_MODEL:gemini-2.5-flash}
             temperature: 0.2
 
 sjw:

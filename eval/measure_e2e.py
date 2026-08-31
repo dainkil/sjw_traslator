@@ -38,6 +38,8 @@ def pct(xs, p):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=30)
+    ap.add_argument("--pause", type=float, default=0.0,
+                    help="요청 간 최소 간격(초). 무료 티어 RPM 준수용 — RPM 10이면 6 이상 권장")
     args = ap.parse_args()
 
     corpus = json.loads((REPO / "eval" / "eval300_1925.json").read_text())["corpus"]
@@ -70,6 +72,9 @@ def main():
                 tokens_out.append(meta["tokensOut"])
             if (i + 1) % 10 == 0:
                 print(f"  {i + 1}/{len(sample)}…")
+            elapsed = time.perf_counter() - t0
+            if args.pause > elapsed:
+                time.sleep(args.pause - elapsed)
 
     n = len(client_ms)
     print(f"\n# E2E 실측: 성공 {n} / 실패 {fails}\n")

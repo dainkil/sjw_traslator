@@ -17,7 +17,7 @@ PRICES_USD_PER_MTOK = {
     # [공시가] 2026-08-31 확인, Gemini Developer API 기준
     # https://devtk.ai/en/models/gemini-2-5-flash/ 외
     "flash":      {"in": 0.30, "out": 2.50},
-    "flash-lite": {"in": 0.10, "out": 0.40},
+    "flash-lite": {"in": 0.10, "out": 0.40},  # 2.5-flash-lite 단종 확인(2026-08-31) — 저가 티어 참고용
 }
 
 
@@ -40,6 +40,9 @@ class Params:
     model: str = "flash"
     batch_discount: bool = False   # [공시가] Batch API 50% 할인
     usd_krw: float = 1400.0        # [추정] 환율
+    # --- 무료 티어 (ADR-016) ---
+    free_tier: bool = False           # True면 비용 0, RPD cap이 벽시계를 지배
+    requests_per_day_cap: float = 0   # 일일 무료 요청 한도 (0=무제한). 새 키 발급 후 실측 기입
     # --- 처리 시간 ---
     concurrency: int = 50          # 외부 API 동시성 상한 (설계 변수)
     avg_call_latency_s: float = 2.0  # [추정 — M1 실측으로 교체] LLM 호출 왕복
@@ -59,9 +62,13 @@ def run(p: Params) -> dict:
     price = PRICES_USD_PER_MTOK[p.model]
     disc = 0.5 if p.batch_discount else 1.0
     cost_usd = (tokens_in / 1e6 * price["in"] + tokens_out / 1e6 * price["out"]) * disc
+    if p.free_tier:
+        cost_usd = 0.0
     cost_krw = cost_usd * p.usd_krw
 
-    wall_s = calls * p.avg_call_latency_s / p.concurrency
+    wall_days = calls * p.avg_call_latency_s / p.concurrency / 86400
+    if p.requests_per_day_cap > 0:
+        wall_days = max(wall_days, calls / p.requests_per_day_cap)
     return {
         "잔여 글자 수": remaining_chars,
         "잔여 문장 수": sentences,
@@ -71,7 +78,7 @@ def run(p: Params) -> dict:
         "총 비용 (USD)": cost_usd,
         "총 비용 (KRW)": cost_krw,
         "문장당 비용 (KRW)": cost_krw / sentences,
-        "벽시계 시간 (일)": wall_s / 86400,
+        "벽시계 시간 (일)": wall_days,
     }
 
 
