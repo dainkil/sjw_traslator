@@ -35,12 +35,15 @@ public class BatchController {
 
     private final BatchJobRepository batches;
     private final TranslationJobRepository jobs;
+    private final org.springframework.data.redis.core.StringRedisTemplate redisForBatch;
     private final String corpusPath;
 
     public BatchController(BatchJobRepository batches, TranslationJobRepository jobs,
+                           org.springframework.data.redis.core.StringRedisTemplate redisForBatch,
                            @Value("${sjw.eval.corpus:../eval/eval300_1925.json}") String corpusPath) {
         this.batches = batches;
         this.jobs = jobs;
+        this.redisForBatch = redisForBatch;
         this.corpusPath = corpusPath;
     }
 
@@ -102,8 +105,21 @@ public class BatchController {
     public ResponseEntity<?> resume(@PathVariable UUID id) {
         boolean ok = batches.transition(id, "PAUSED", "RUNNING")
                 || batches.transition(id, "QUOTA_PAUSED", "RUNNING");
-        return ok ? ResponseEntity.ok(java.util.Map.of("status", "RUNNING"))
-                : ResponseEntity.status(HttpStatus.CONFLICT).body(java.util.Map.of("error", "NOT_PAUSED"));
+        if (!ok) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(java.util.Map.of("error", "NOT_PAUSED"));
+        }
+        // FAILED(예: 일일 quota로 막혔던) job을 재시도 대상으로 되돌리고 재발행
+        var retried = jobs.resetFailedToPending(id);
+        retried.forEach(this::publishJob);
+        return ResponseEntity.ok(java.util.Map.of("status", "RUNNING", "requeuedFailed", retried.size()));
+    }
+
+    private void publishJob(UUID jobId) {
+        redisForBatch.opsForStream().add(
+                org.springframework.data.redis.connection.stream.StreamRecords.newRecord()
+                        .in(dev.sjw.common.queue.QueueKeys.STREAM)
+                        .ofMap(java.util.Map.of(dev.sjw.common.queue.QueueKeys.FIELD_JOB_ID,
+                                jobId.toString())));
     }
 
     private BatchView view(BatchRow b) {

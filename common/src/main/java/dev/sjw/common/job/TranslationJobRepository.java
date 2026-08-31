@@ -97,6 +97,16 @@ public class TranslationJobRepository {
                 .update();
     }
 
+    /** 배치 resume 시 FAILED job을 PENDING으로 되돌리고 재발행 대상 id를 반환 (재시도 경로). */
+    public java.util.List<UUID> resetFailedToPending(UUID batchId) {
+        return jdbc.sql("""
+                UPDATE translation_job SET status = 'PENDING', error_class = NULL
+                WHERE batch_id = ? AND status = 'FAILED'
+                RETURNING id
+                """)
+                .params(batchId).query(UUID.class).list();
+    }
+
     public Optional<String> findResultJson(UUID jobId) {
         return jdbc.sql("""
                 SELECT translated_text FROM translation_result WHERE job_id = ?

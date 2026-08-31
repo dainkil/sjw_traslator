@@ -87,7 +87,7 @@ public class StreamConsumer implements SmartLifecycle {
                         StreamOffset.create(QueueKeys.STREAM, ReadOffset.lastConsumed()));
                 if (records != null) {
                     for (MapRecord<String, Object, Object> r : records) {
-                        handle(r);
+                        handle(r, 1);
                     }
                 }
                 if (++loops % 30 == 0) {
@@ -102,16 +102,16 @@ public class StreamConsumer implements SmartLifecycle {
         }
     }
 
-    private void handle(MapRecord<String, Object, Object> record) {
+    private void handle(MapRecord<String, Object, Object> record, long deliveryCount) {
         Object raw = record.getValue().get(QueueKeys.FIELD_JOB_ID);
-        boolean ack;
+        JobProcessor.Outcome outcome;
         try {
-            ack = processor.process(UUID.fromString(String.valueOf(raw)));
+            outcome = processor.process(UUID.fromString(String.valueOf(raw)), deliveryCount);
         } catch (Exception e) {
             log.error("메시지 {} 처리 예외 — 미ACK(재전달 대상): {}", record.getId(), e.toString());
             return;
         }
-        if (ack) {
+        if (outcome == JobProcessor.Outcome.ACK) {
             redis.opsForStream().acknowledge(QueueKeys.STREAM, QueueKeys.CONSUMER_GROUP, record.getId());
         }
         // 임시 고정 페이싱 (무료 티어 RPM 보호). S5에서 적응형 토큰 버킷으로 대체된다.
@@ -126,19 +126,22 @@ public class StreamConsumer implements SmartLifecycle {
             if (pending == null || pending.isEmpty()) {
                 return;
             }
-            List<RecordId> stale = pending.stream()
+            var staleMsgs = pending.stream()
                     .filter(p -> p.getElapsedTimeSinceLastDelivery().compareTo(STALE_MIN_IDLE) > 0)
-                    .map(PendingMessage::getId)
                     .toList();
-            if (stale.isEmpty()) {
+            if (staleMsgs.isEmpty()) {
                 return;
             }
+            java.util.Map<RecordId, Long> deliveries = new java.util.HashMap<>();
+            staleMsgs.forEach(p -> deliveries.put(p.getId(), p.getTotalDeliveryCount()));
             List<MapRecord<String, Object, Object>> claimed = redis.opsForStream().claim(
                     QueueKeys.STREAM, QueueKeys.CONSUMER_GROUP, consumerName,
-                    XClaimOptions.minIdle(STALE_MIN_IDLE).ids(stale.toArray(new RecordId[0])));
+                    XClaimOptions.minIdle(STALE_MIN_IDLE).ids(
+                            staleMsgs.stream().map(PendingMessage::getId).toArray(RecordId[]::new)));
             log.info("stale {}건 claim — 이어서 처리", claimed.size());
             for (MapRecord<String, Object, Object> r : claimed) {
-                handle(r);
+                // claim이 전달 횟수를 1 올린다
+                handle(r, deliveries.getOrDefault(r.getId(), 1L) + 1);
             }
         } catch (Exception e) {
             log.warn("claimStale 실패 (다음 주기 재시도): {}", e.toString());

@@ -2,6 +2,8 @@ spring:
   application:
     name: sjw-worker
   ai:
+    retry:
+      max-attempts: 1   # 내장 재시도 비활성 — 재시도 정책은 Resilience4j가 단독 통제 (이중 재시도 방지)
     google:
       genai:
         api-key: ${GEMINI_API_KEY}

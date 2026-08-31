@@ -80,14 +80,25 @@ public class TranslationService {
         String prompt = promptAssembler.assemble(text, linked);
         lat.put("prompt", ms(t));
 
-        // ④ LLM 호출 (Structured Output)
+        // ④ LLM 호출 (Structured Output — 변환을 수동으로 하여 파싱 실패 시에도 usage를 보존)
         t = System.nanoTime();
-        var responseEntity = chatClient.prompt().user(prompt).call()
-                .responseEntity(LlmOutput.class);
+        var converter = new org.springframework.ai.converter.BeanOutputConverter<>(LlmOutput.class);
+        var chatResponse = chatClient.prompt()
+                .user(prompt + "\n" + converter.getFormat())
+                .call().chatResponse();
         lat.put("llm", ms(t));
 
-        LlmOutput out = responseEntity.entity();
-        var usage = responseEntity.response().getMetadata().getUsage();
+        var usage = chatResponse == null ? null : chatResponse.getMetadata().getUsage();
+        String rawText = chatResponse == null ? null
+                : chatResponse.getResult().getOutput().getText();
+        LlmOutput out;
+        try {
+            out = converter.convert(rawText == null ? "" : rawText);
+        } catch (RuntimeException parseError) {
+            throw new LlmParseException(model,
+                    usage == null ? null : usage.getPromptTokens(),
+                    usage == null ? null : usage.getCompletionTokens(), parseError);
+        }
         lat.put("total", (System.nanoTime() - start) / 1_000_000);
 
         List<UncertainSpan> uncertain = new ArrayList<>(kbMisses);
