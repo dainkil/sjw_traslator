@@ -27,6 +27,7 @@ malmoi/
 .vscode/
 
 # 빌드 산출물
+.gradle/
 api/build/
 worker/build/
 *.class

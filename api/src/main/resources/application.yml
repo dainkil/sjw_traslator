@@ -1,0 +1,27 @@
+spring:
+  application:
+    name: sjw-api
+  ai:
+    google:
+      genai:
+        # Developer API 모드: api-key만 설정한다.
+        # 주의(§4.3): project-id / location을 설정하면 Vertex AI 모드로 전환되어
+        # Developer API 키가 400으로 거부된다. 절대 추가하지 말 것.
+        api-key: ${GEMINI_API_KEY}
+        chat:
+          options:
+            model: gemini-2.5-flash
+            temperature: 0.2
+
+sjw:
+  ner:
+    url: ${NER_URL:http://localhost:8100}
+  kb:
+    dir: ${KB_DIR:../kb}
+    version: injo-v1
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,prometheus
