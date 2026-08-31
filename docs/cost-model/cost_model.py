@@ -32,7 +32,8 @@ class Params:
     # --- 토큰 환산 [실측 2026-08-31 — countTokens, 골든셋 300문장, measure_tokens.py] ---
     tokens_per_src_char: float = 0.954   # [실측] 한자 원문 토큰/글자 (중앙값 0.940)
     tokens_per_out_char: float = 0.630   # [실측] 한국어 번역문 토큰/글자 (중앙값 0.621)
-    prompt_overhead_tokens: float = 448  # [실측] 페르소나 고정부. KB블록 주입분은 미포함(문장별 가변, 추정 +50~150)
+    prompt_overhead_tokens: float = 700  # [실측 역산] E2E 요청당 입력 ~820tok(usage 실측) - 원문 ~120tok.
+                                         # 구성: 페르소나 448(countTokens) + Structured Output 지시문·KB블록 ~250
     # --- 운영 가정 ---
     retry_overhead: float = 0.05   # [추정] 재시도로 인한 호출량 증가율 (429/5xx)
     cache_hit_rate: float = 0.0    # M3 전 기준. 실측 후 갱신
@@ -45,7 +46,7 @@ class Params:
     requests_per_day_cap: float = 0   # 일일 무료 요청 한도 (0=무제한). 새 키 발급 후 실측 기입
     # --- 처리 시간 ---
     concurrency: int = 50          # 외부 API 동시성 상한 (설계 변수)
-    avg_call_latency_s: float = 2.0  # [추정 — M1 실측으로 교체] LLM 호출 왕복
+    avg_call_latency_s: float = 3.2  # [실측 2026-08-31] 3.1-flash-lite mean (3.5-flash는 12.1s — thinking)
 
 
 def run(p: Params) -> dict:
@@ -99,7 +100,7 @@ def main():
           f"concurrency={p.concurrency}\n")
     for k, v in run(p).items():
         print(f"{k:28s} {v:>18,.1f}")
-    print("\n[주의] 토큰 환산은 실측(2026-08-31). 지연·환율·재시도율은 (추정) — M1/M2 실측 후 갱신.")
+    print("\n[주의] 토큰·지연은 실측(2026-08-31). 환율·재시도율·캐시히트율은 (추정) — M2/M3 실측 후 갱신.")
 
 
 if __name__ == "__main__":

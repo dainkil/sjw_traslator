@@ -21,6 +21,10 @@ monthly spending cap. Please go to AI Studio at https://ai.studio/spend ...
 - 참고: `countTokens`는 무과금이라 지출 상한과 무관하게 동작한다 (토큰 실측은 상한 초과 상태에서도 정상 수행됨).
 - **탐침 결과 (2026-08-31, 동일 키로 모델 5종 1회씩)**: `gemini-2.5-flash`·`gemini-3.1-flash-lite`·`gemma-4-26b-a4b-it` 전부 동일한 지출 상한 429 → 상한은 **프로젝트 전역**이며 모델·무료티어 후한 Gemma조차 우회 불가. **결제가 연동된 프로젝트의 키는 유료 티어로 과금되므로, 무료 운영(ADR-016)에는 결제 미연동 프로젝트에서 발급한 키를 써야 한다.** 부수 확인: `gemini-2.5-flash-lite`는 단종(404 "no longer available"), `gemma-3-27b-it` 제거됨.
 
-## 3. `.env.example`이 `.env.*` gitignore 패턴에 걸림
+## 3. 같은 모델이 프로젝트에 따라 429와 404로 다르게 죽는다
+
+`gemini-2.5-flash`가 결제 연동(구) 프로젝트 키로는 **429 지출 상한**, 결제 미연동 신규 프로젝트 키로는 **404 "no longer available"** 을 반환했다 (2026-08-31). 즉 구형 모델은 기존 프로젝트에만 레거시 접근이 남고 신규 프로젝트에서는 제거된다. 모델 가용성은 키/프로젝트마다 다르므로 **키를 바꾸면 반드시 모델 탐침을 다시 돌릴 것** (후보별 1회 호출로 확인).
+
+## 4. `.env.example`이 `.env.*` gitignore 패턴에 걸림
 
 `.env`를 막으려고 `.env.*`를 넣으면 견본 파일까지 무시된다. `!.env.example` 예외를 추가할 것.
