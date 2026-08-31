@@ -22,6 +22,7 @@ dependencyManagement {
 dependencies {
     api 'org.springframework:spring-web'
     api 'org.springframework:spring-context'
+    api 'org.springframework:spring-jdbc'
     api 'org.springframework.ai:spring-ai-starter-model-google-genai'
     api 'com.fasterxml.jackson.core:jackson-databind'
     api 'jakarta.validation:jakarta.validation-api'
