@@ -1,0 +1,51 @@
+# 최소 CI (M2.5-S8): 테스트 → 빌드. 이미지 빌드·배포는 M6에서 추가한다 (계획서 §10 M6).
+# 통합 테스트가 실제 인프라를 요구한다: 리미터 테스트는 Lua 원자성 검증이라 실 Redis,
+# api 컨텍스트 테스트는 Flyway 마이그레이션이라 실 Postgres에 붙는다 (인메모리 대역 금지 원칙).
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test-build:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: sjw
+          POSTGRES_USER: sjw
+          POSTGRES_PASSWORD: sjw
+        ports:
+          - "5433:5432"   # 로컬 개발과 동일 포트 계약 (deploy/docker-compose.yml)
+        options: >-
+          --health-cmd "pg_isready -U sjw -d sjw"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - "6379:6379"
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      # 컨텍스트 로드용 placeholder — CI는 LLM을 호출하지 않는다 (무료 quota 보존, ADR-016)
+      GEMINI_API_KEY: ci-placeholder
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Test & build
+        run: ./gradlew build --no-daemon
+
+      # 품질 비열등 판정(eval/score_db.py)은 시스템 결과가 쌓인 DB가 필요해 CI 컨테이너에선 돌 수 없다.
+      # 종료 코드 계약(위반=1)은 이미 CI-호환 — 배포 타겟의 DB가 생기는 M6에서 스케줄 잡으로 연결한다.
