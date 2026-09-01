@@ -1,6 +1,6 @@
 package dev.sjw.common.translate;
 
-import dev.sjw.common.kb.KnowledgeBase;
+import dev.sjw.common.kb.KnowledgeSource;
 import dev.sjw.common.kb.LinkResult;
 import dev.sjw.common.llm.Translator;
 import dev.sjw.common.ner.EntityRecognizer;
@@ -20,11 +20,11 @@ import org.springframework.stereotype.Service;
 public class TranslationService {
 
     private final EntityRecognizer nerClient;
-    private final KnowledgeBase kb;
+    private final KnowledgeSource kb;
     private final PromptAssembler promptAssembler;
     private final Translator translator;
 
-    public TranslationService(EntityRecognizer nerClient, KnowledgeBase kb,
+    public TranslationService(EntityRecognizer nerClient, KnowledgeSource kb,
                               PromptAssembler promptAssembler, Translator translator) {
         this.nerClient = nerClient;
         this.kb = kb;
