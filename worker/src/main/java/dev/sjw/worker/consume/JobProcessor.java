@@ -6,6 +6,9 @@ import dev.sjw.common.job.CostLedgerRepository;
 import dev.sjw.common.job.JobRow;
 import dev.sjw.common.job.JobStatus;
 import dev.sjw.common.job.TranslationJobRepository;
+import dev.sjw.common.llm.TranslatorFactory;
+import dev.sjw.common.quality.QualityGate;
+import dev.sjw.common.quality.QualityGrade;
 import dev.sjw.common.translate.LlmParseException;
 import dev.sjw.common.translate.TranslationDtos.TranslationResponse;
 import dev.sjw.common.translate.TranslationService;
@@ -21,11 +24,13 @@ import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
 import io.github.resilience4j.core.IntervalFunction;
 import io.github.resilience4j.retry.Retry;
 import io.github.resilience4j.retry.RetryConfig;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
@@ -57,13 +62,21 @@ public class JobProcessor {
     private final FailureClassifier classifier;
     private final DlqPublisher dlq;
     private final AdaptiveRateLimiter rateLimiter;
+    private final QualityGate qualityGate;
+    private final TranslatorFactory translatorFactory;
+    private final MeterRegistry meters;
+    private final boolean tierUpEnabled;
+    private final String tierUpModel;
     private final Retry retry;
     private final CircuitBreaker breaker;
 
     public JobProcessor(TranslationJobRepository jobs, CostLedgerRepository ledger,
                         BatchJobRepository batches, TranslationService translationService,
                         FailureClassifier classifier, DlqPublisher dlq,
-                        AdaptiveRateLimiter rateLimiter) {
+                        AdaptiveRateLimiter rateLimiter, QualityGate qualityGate,
+                        TranslatorFactory translatorFactory, MeterRegistry meters,
+                        @Value("${sjw.quality.tier-up-enabled:true}") boolean tierUpEnabled,
+                        @Value("${sjw.quality.tier-up-model:gemini-3.5-flash}") String tierUpModel) {
         this.jobs = jobs;
         this.ledger = ledger;
         this.batches = batches;
@@ -71,6 +84,11 @@ public class JobProcessor {
         this.classifier = classifier;
         this.dlq = dlq;
         this.rateLimiter = rateLimiter;
+        this.qualityGate = qualityGate;
+        this.translatorFactory = translatorFactory;
+        this.meters = meters;
+        this.tierUpEnabled = tierUpEnabled;
+        this.tierUpModel = tierUpModel;
         this.retry = Retry.of("llm", RetryConfig.custom()
                 .maxAttempts(2)
                 .intervalFunction(IntervalFunction.ofExponentialRandomBackoff(
@@ -142,11 +160,28 @@ public class JobProcessor {
             TranslationResponse resp = call.call();
             ledger.record(jobId, resp.meta().model(),
                     resp.meta().tokensIn(), resp.meta().tokensOut());
+
+            // 품질 게이트 (§5.4): 확정 엔티티 반영 여부의 결정론 검사 — LLM 추가 호출 0회
+            QualityGate.Verdict verdict = qualityGate.grade(resp);
+            if (verdict.grade() == QualityGrade.REJECTED) {
+                TranslationResponse promoted = tryTierUp(jobId, prep, model, verdict);
+                if (promoted != null) {
+                    resp = promoted;
+                    verdict = qualityGate.grade(resp);
+                }
+            }
+            meters.counter("sjw.quality.grade", "grade", verdict.grade().name()).increment();
+            if (verdict.grade() == QualityGrade.REJECTED) {
+                // 승격 후에도 실패 — 검수 큐 = quality_grade REJECTED 행 (번역은 반환하되 등급으로 격리)
+                log.warn("job {} REJECTED (누락: {}) — 검수 큐 대상", jobId, verdict.missingNames());
+            }
+
             jobs.insertResult(jobId, resp.translatedText(),
                     JSON.writeValueAsString(resp.entities()),
                     JSON.writeValueAsString(resp.uncertainSpans()));
             jobs.markSucceeded(jobId, resp.meta().model(), null /* cacheHit — M3 */,
-                    resp.meta().tokensIn(), resp.meta().tokensOut(), resp.meta().kbVersion());
+                    resp.meta().tokensIn(), resp.meta().tokensOut(), resp.meta().kbVersion(),
+                    verdict.grade().name());
             return Outcome.ACK;
         } catch (RateLimitWaitTimeoutException wait) {
             log.warn("job {} permit 대기 상한 — 미ACK 재전달: {}", jobId, wait.getMessage());
@@ -156,6 +191,43 @@ public class JobProcessor {
             return Outcome.REDELIVER;
         } catch (Exception e) {
             return onFailure(job, e, deliveryCount);
+        }
+    }
+
+    /**
+     * REJECTED → 상위 티어 1회 재호출 (§5.4 품질 기반 상향 라우팅). 승격 호출도
+     * 해당 모델 버킷의 permit·원장 기록을 지킨다. 승격 실패(quota 소진 등)는 job을
+     * 죽이지 않는다 — 이미 가진 번역을 REJECTED 등급으로 반환하는 것이 낫다.
+     */
+    private TranslationResponse tryTierUp(UUID jobId, TranslationService.Prepared prep,
+                                          String primaryModel, QualityGate.Verdict verdict) {
+        if (!tierUpEnabled || tierUpModel == null || tierUpModel.equals(primaryModel)) {
+            return null;
+        }
+        log.info("job {} REJECTED (누락: {}) — {} 로 승격 재호출", jobId, verdict.missingNames(), tierUpModel);
+        meters.counter("sjw.quality.tier_up").increment();
+        try {
+            rateLimiter.acquire(tierUpModel);
+            try {
+                TranslationResponse r = translationService.translate(
+                        prep, translatorFactory.forModel(tierUpModel));
+                rateLimiter.onSuccess(tierUpModel);
+                ledger.record(jobId, r.meta().model(), r.meta().tokensIn(), r.meta().tokensOut());
+                return r;
+            } catch (Exception e) {
+                if (classifier.classify(e) == ErrorClass.RATE_LIMITED) {
+                    rateLimiter.onRateLimited(tierUpModel, RetryAfterHint.parse(e).orElse(null));
+                }
+                throw e;
+            }
+        } catch (Exception e) {
+            // 파싱 실패도 호출은 발생 — 원장 기록 (과금 회계는 성공 여부와 무관)
+            if (e instanceof LlmParseException pe) {
+                ledger.record(jobId, pe.model(), pe.tokensIn(), pe.tokensOut());
+            }
+            log.warn("job {} 승격 호출 실패 [{}] — 1차 결과를 REJECTED로 유지: {}",
+                    jobId, classifier.classify(e), brief(e));
+            return null;
         }
     }
 

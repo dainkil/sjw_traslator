@@ -44,6 +44,11 @@ sjw:
         tier: T0
         unit-price-in-usd-per-mtok: 0      # 유료 제공 없음 — counterfactual 0
         unit-price-out-usd-per-mtok: 0
+  quality:
+    # §5.4 런타임 게이트의 상향 라우팅. 게이트 오탐률은 골든셋 전문가 번역으로 선측정되어 있다
+    # (QualityGateGoldensetTest → docs/benchmarks.md) — 측정 없이 켜지 않는다는 원칙의 이행.
+    tier-up-enabled: ${TIER_UP_ENABLED:true}
+    tier-up-model: ${TIER_UP_MODEL:gemini-3.5-flash}   # T1. RPD 20 — REJECTED에만 소비
   # 적응형 rate control (ADR-017). 이 값들은 '운영 rate'가 아니라 탐색의 경계·속도다 —
   # 실제 RPM은 429 피드백으로 스스로 정해진다. 시작값이 틀린 것은 설계상 허용된다.
   rate:
