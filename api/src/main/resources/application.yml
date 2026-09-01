@@ -47,6 +47,7 @@ sjw:
         unit-price-out-usd-per-mtok: 0
   ner:
     url: ${NER_URL:http://localhost:8100}
+    mode: ${NER_MODE:http}   # http(ONNX 서버, 운영) | rule(규칙 축소판 — degrade/A/B)
   kb:
     dir: ${KB_DIR:../kb}
     version: injo-v1

@@ -57,6 +57,7 @@ sjw:
     max-wait-ms: 120000         # permit 대기 상한. 넘으면 미ACK 재전달로 큐가 백오프를 흡수
   ner:
     url: ${NER_URL:http://localhost:8100}
+    mode: ${NER_MODE:http}   # http(ONNX 서버, 운영) | rule(규칙 축소판 — degrade/A/B)
   kb:
     dir: ${KB_DIR:../kb}
     version: injo-v1

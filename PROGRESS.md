@@ -79,7 +79,7 @@ curl -s localhost:8080/api/v1/translations/<jobId> # → SUCCEEDED + 번역
 
 ### 5.1 다음: M2.5 — 교체 가능성 + 품질 게이트 + 배포 기반 (5~6일)
 
-계획서 §10 M2.5가 정본이다. **진행: S1(Flyway + ADR 6건)·S2(모델 레지스트리 + Translator 포트, 3모델 설정 교체 실증) 완료 (2026-09-01).** 요약:
+계획서 §10 M2.5가 정본이다. **진행 (2026-09-01): S1(Flyway + ADR 6건) · S2(모델 레지스트리 + Translator 포트, 3모델 설정 교체 실증) · S3(EntityRecognizer 포트 http/rule, 골든셋 A/B 수치 확보) 완료.** 요약:
 
 1. **포트 3종** `Translator` / `EntityRecognizer` / `KnowledgeSource` — 각각 실구현 2개 이상. 구현체 1개짜리 인터페이스는 만들지 않는다
 2. **모델 레지스트리** `sjw.llm.models[]{id, provider, tier, rpd, 단가}` — rate 버킷 키·원장 단가·M4 티어 매핑·quota 풀링의 단일 출처. `CostLedgerRepository`의 단가 0 하드코딩을 유료 환산값으로 교체
@@ -94,7 +94,7 @@ curl -s localhost:8080/api/v1/translations/<jobId> # → SUCCEEDED + 번역
 | 대상 | 파일 | 문제 |
 |---|---|---|
 | ~~모델 하드바인딩~~ | `TranslationService` | ✅ S2 해소 — `Translator` 포트 + `common/llm` 레지스트리, 모델은 호출마다 옵션 지정 |
-| NER 교체 불가 | `NerClient:9` | 인터페이스 아님. 서버 장애 시 빈 결과로 **무주입 번역이 조용히 SUCCEEDED** |
+| ~~NER 교체 불가~~ | `EntityRecognizer` | ✅ S3 해소 — http/rule 2구현 + `NerUnavailableException`(장애≠빈 결과) + `NER_UNAVAILABLE` 분류 |
 | KB 파일명 고정 | `KnowledgeBase:37-40` | `*_injo.json` 하드코딩. `version`이 데이터와 무관한 자유 문자열 → M3 캐시 무효화의 신뢰 근거 없음 |
 | 품질 게이트 부재 | `JobProcessor:133` | LLM이 200이면 무조건 성공 |
 | ~~단가 미기록~~ | `CostLedgerRepository` | ✅ S2 해소 — 레지스트리 단가로 counterfactual 원화 기록 (행 단위) |

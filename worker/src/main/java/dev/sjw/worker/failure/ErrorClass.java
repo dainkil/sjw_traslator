@@ -22,6 +22,8 @@ public enum ErrorClass {
     PARSE_ERROR(true, false),
     /** 콘텐츠 필터: 영구 — DLQ */
     CONTENT_FILTERED(false, true),
+    /** NER 인식기 동작 불능 (M2.5): 내부 인프라 장애 — 재시도. LLM 서킷 통계에서 제외해야 한다 */
+    NER_UNAVAILABLE(true, false),
     /** 미분류: 재전달 상한까지 재시도 후 DLQ */
     UNKNOWN(true, false);
 

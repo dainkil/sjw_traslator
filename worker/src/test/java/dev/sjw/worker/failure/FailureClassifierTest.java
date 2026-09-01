@@ -64,4 +64,12 @@ class FailureClassifierTest {
     void 미분류는_UNKNOWN() {
         assertEquals(ErrorClass.UNKNOWN, c.classify(new RuntimeException("???")));
     }
+
+    @Test
+    void NER장애는_메시지에_timeout이_있어도_NER_UNAVAILABLE() {
+        // "timeout" 문자열 매칭보다 타입 검사가 먼저여야 LLM TIMEOUT으로 오귀속되지 않는다
+        var e = new RuntimeException("wrapper", new dev.sjw.common.ner.NerUnavailableException(
+                "NER 서버 호출 실패: request timed out", new RuntimeException("timed out")));
+        assertEquals(ErrorClass.NER_UNAVAILABLE, c.classify(e));
+    }
 }
