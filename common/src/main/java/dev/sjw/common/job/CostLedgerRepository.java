@@ -1,27 +1,36 @@
 package dev.sjw.common.job;
 
+import dev.sjw.common.llm.ModelRegistry;
 import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
-/** LLM 호출 1회 = 1행. "재시작 시 중복 호출 0건"의 증명 데이터 (M2 수용 기준). */
+/**
+ * LLM 호출 1회 = 1행. "재시작 시 중복 호출 0건"의 증명 데이터 (M2 수용 기준).
+ *
+ * 단가·비용은 counterfactual 유료 환산이다 — 무료 티어 운영(ADR-016)에서 실지출은 0이지만,
+ * "유료였다면 얼마였나"를 행 단위로 남겨야 절감 헤드라인(§9)이 원장에서 직접 집계된다.
+ */
 @Repository
 public class CostLedgerRepository {
 
     private final JdbcClient jdbc;
+    private final ModelRegistry registry;
 
-    public CostLedgerRepository(JdbcClient jdbc) {
+    public CostLedgerRepository(JdbcClient jdbc, ModelRegistry registry) {
         this.jdbc = jdbc;
+        this.registry = registry;
     }
 
     public void record(UUID jobId, String model, Integer tokensIn, Integer tokensOut) {
-        // 무료 티어(ADR-016): 단가 0. 유료 전환 시 unit_price·cost_krw를 모델별 단가로 채운다.
+        ModelRegistry.Cost cost = registry.cost(model, tokensIn, tokensOut);
         jdbc.sql("""
                 INSERT INTO cost_ledger (job_id, model, tokens_in, tokens_out,
                                          unit_price_in, unit_price_out, cost_krw)
-                VALUES (?, ?, ?, ?, 0, 0, 0)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """)
-                .params(jobId, model, tokensIn, tokensOut)
+                .params(jobId, model, tokensIn, tokensOut,
+                        cost.unitPriceIn(), cost.unitPriceOut(), cost.krw())
                 .update();
     }
 
