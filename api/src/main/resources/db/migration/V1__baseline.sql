@@ -1,4 +1,6 @@
--- §8.2 데이터 모델. api 기동 시 적용 (CREATE IF NOT EXISTS — 멱등).
+-- §8.2 데이터 모델 baseline (M2까지의 스키마 — ADR-023).
+-- V1 이전에 schema.sql 직접 실행으로 만들어진 기존 DB는 baseline-on-migrate로 버전 1 처리되어
+-- 이 파일을 건너뛴다. IF NOT EXISTS는 그 시절의 멱등 실행 흔적으로, 의미상 무해해서 유지한다.
 -- 예산 단위: 무료 티어 운영(ADR-016)에서는 원화가 아니라 LLM 호출 수가 예산이다.
 
 CREATE TABLE IF NOT EXISTS translation_job (

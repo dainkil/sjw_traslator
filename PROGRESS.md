@@ -101,7 +101,8 @@ curl -s localhost:8080/api/v1/translations/<jobId> # → SUCCEEDED + 번역
 
 ### 5.2 미작성 ADR
 
-018~023이 M2.5 산출물. **배제 ADR 007(Tool Calling) / 008(ChatMemory) / 012(Kafka·MSA·K8s)와 004는 코드가 필요 없어 지금 바로 쓸 수 있다.**
+**작성 완료 (2026-09-01, M2.5-S1):** 004(KB in-memory) / 007(Tool Calling 배제) / 008(ChatMemory 배제) / 012(Kafka·MSA·K8s 배제) / 021(단일 워커 — 처리량 실측 근거) / 023(Flyway).
+**남은 M2.5 산출물:** 018(포트) / 019(품질 게이트) / 020(BYOK) / 022(배포 타겟). 009~011·013은 M3~M5에서.
 
 ## 6. 세션 운영 규칙 (Claude Code로 재개할 때)
 
