@@ -15,6 +15,7 @@ public record JobRow(
         Integer tokensIn,
         Integer tokensOut,
         UUID batchId,
+        String tenantId,
         String errorClass,
         OffsetDateTime createdAt,
         OffsetDateTime completedAt

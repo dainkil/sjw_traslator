@@ -22,15 +22,16 @@ public class CostLedgerRepository {
         this.registry = registry;
     }
 
-    public void record(UUID jobId, String model, Integer tokensIn, Integer tokensOut) {
+    public void record(UUID jobId, String model, Integer tokensIn, Integer tokensOut,
+                       String tenantId) {
         ModelRegistry.Cost cost = registry.cost(model, tokensIn, tokensOut);
         jdbc.sql("""
                 INSERT INTO cost_ledger (job_id, model, tokens_in, tokens_out,
-                                         unit_price_in, unit_price_out, cost_krw)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                                         unit_price_in, unit_price_out, cost_krw, tenant_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """)
                 .params(jobId, model, tokensIn, tokensOut,
-                        cost.unitPriceIn(), cost.unitPriceOut(), cost.krw())
+                        cost.unitPriceIn(), cost.unitPriceOut(), cost.krw(), tenantId)
                 .update();
     }
 

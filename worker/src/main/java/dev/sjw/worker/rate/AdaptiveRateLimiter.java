@@ -73,14 +73,14 @@ public class AdaptiveRateLimiter {
     }
 
     /** 논블로킹 획득 시도. 거절되면 {@code waitMs} 뒤에 재시도하면 된다. */
-    public Decision tryAcquire(String model) {
-        List<Long> r = exec(acquireScript, model,
+    public Decision tryAcquire(String bucket) {
+        List<Long> r = exec(acquireScript, bucket,
                 String.valueOf(cfg.initialRpm()),
                 String.valueOf(cfg.minRpm()),
                 String.valueOf(cfg.maxRpm()),
                 String.valueOf(cfg.burstSeconds()));
         Decision d = new Decision(r.get(0) == 1L, r.get(1), r.get(2).intValue(), r.get(3) / 100.0);
-        rpmGauge(model).set(d.rpm());
+        rpmGauge(bucket).set(d.rpm());
         return d;
     }
 
@@ -90,34 +90,34 @@ public class AdaptiveRateLimiter {
      * @return 실제 대기한 밀리초
      * @throws RateLimitWaitTimeoutException 대기가 {@code maxWaitMs}를 넘거나 인터럽트된 경우
      */
-    public long acquire(String model) {
+    public long acquire(String bucket) {
         long start = System.nanoTime();
-        Decision d = tryAcquire(model);
+        Decision d = tryAcquire(bucket);
         while (!d.granted()) {
             long elapsed = elapsedMs(start);
             if (elapsed >= cfg.maxWaitMs()) {
                 throw new RateLimitWaitTimeoutException(
-                        "permit 대기 상한 초과: model=%s, %dms 대기, 현재 %d RPM"
-                                .formatted(model, elapsed, d.rpm()));
+                        "permit 대기 상한 초과: bucket=%s, %dms 대기, 현재 %d RPM"
+                                .formatted(bucket, elapsed, d.rpm()));
             }
             long slice = Math.max(20, Math.min(Math.min(d.waitMs(), SLEEP_SLICE_MS),
                     cfg.maxWaitMs() - elapsed));
-            sleep(slice, model);
-            d = tryAcquire(model);
+            sleep(slice, bucket);
+            d = tryAcquire(bucket);
         }
         long waited = elapsedMs(start);
-        waitTimer(model).record(waited, TimeUnit.MILLISECONDS);
+        waitTimer(bucket).record(waited, TimeUnit.MILLISECONDS);
         if (waited > 0) {
-            log.debug("permit 대기 {}ms (model={}, {} RPM)", waited, model, d.rpm());
+            log.debug("permit 대기 {}ms (bucket={}, {} RPM)", waited, bucket, d.rpm());
         }
         return waited;
     }
 
     /** 성공 피드백 — 연속 N회면 rate를 한 단계 올린다 (AIMD의 AI). */
-    public void onSuccess(String model) {
-        List<Long> r = feedback(model, OP_SUCCESS, 0L);
+    public void onSuccess(String bucket) {
+        List<Long> r = feedback(bucket, OP_SUCCESS, 0L);
         int rpm = r.get(0).intValue();
-        rpmGauge(model).set(rpm);
+        rpmGauge(bucket).set(rpm);
     }
 
     /**
@@ -125,21 +125,21 @@ public class AdaptiveRateLimiter {
      *
      * @param providerHint 응답이 알려준 재시도 지연. null이면 새 rate의 1틱을 쿨다운으로 쓴다.
      */
-    public void onRateLimited(String model, Duration providerHint) {
+    public void onRateLimited(String bucket, Duration providerHint) {
         long hintMs = providerHint == null ? 0L : Math.max(0L, providerHint.toMillis());
-        int before = rpmGauge(model).get();
-        List<Long> r = feedback(model, OP_THROTTLE, hintMs);
+        int before = rpmGauge(bucket).get();
+        List<Long> r = feedback(bucket, OP_THROTTLE, hintMs);
         int rpm = r.get(0).intValue();
         long cooldown = r.get(1);
-        rpmGauge(model).set(rpm);
-        meters.counter("llm.rate_limit.429", "model", model).increment();
-        log.warn("429 피드백: model={} rate {} → {} RPM, 쿨다운 {}ms{}",
-                model, before, rpm, cooldown, providerHint == null ? "" : " (provider 힌트)");
+        rpmGauge(bucket).set(rpm);
+        meters.counter("llm.rate_limit.429", "bucket", bucket).increment();
+        log.warn("429 피드백: bucket={} rate {} → {} RPM, 쿨다운 {}ms{}",
+                bucket, before, rpm, cooldown, providerHint == null ? "" : " (provider 힌트)");
     }
 
     /** 버킷 원상태 조회 (테스트·데모·운영 확인용). 버킷이 없으면 설정 초기값을 반영해 돌려준다. */
-    public Snapshot snapshot(String model) {
-        Map<Object, Object> h = redis.opsForHash().entries(QueueKeys.rateBucket(model));
+    public Snapshot snapshot(String bucket) {
+        Map<Object, Object> h = redis.opsForHash().entries(QueueKeys.rateBucket(bucket));
         return new Snapshot(
                 (int) num(h.get("rpm"), cfg.initialRpm()),
                 num(h.get("tokens"), 0),
@@ -147,8 +147,8 @@ public class AdaptiveRateLimiter {
                 (int) num(h.get("streak"), 0));
     }
 
-    private List<Long> feedback(String model, String op, long hintMs) {
-        return exec(feedbackScript, model,
+    private List<Long> feedback(String bucket, String op, long hintMs) {
+        return exec(feedbackScript, bucket,
                 op,
                 String.valueOf(cfg.initialRpm()),
                 String.valueOf(cfg.minRpm()),
@@ -160,30 +160,30 @@ public class AdaptiveRateLimiter {
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})
-    private List<Long> exec(RedisScript<List> script, String model, String... args) {
+    private List<Long> exec(RedisScript<List> script, String bucket, String... args) {
         List<Long> r = (List<Long>) redis.execute(script,
-                List.of(QueueKeys.rateBucket(model)), (Object[]) args);
+                List.of(QueueKeys.rateBucket(bucket)), (Object[]) args);
         if (r == null) {
-            throw new IllegalStateException("rate 스크립트가 결과를 반환하지 않음: model=" + model);
+            throw new IllegalStateException("rate 스크립트가 결과를 반환하지 않음: bucket=" + bucket);
         }
         return r;
     }
 
-    private AtomicInteger rpmGauge(String model) {
-        return rpmGauges.computeIfAbsent(model, m -> {
+    private AtomicInteger rpmGauge(String bucket) {
+        return rpmGauges.computeIfAbsent(bucket, m -> {
             AtomicInteger holder = new AtomicInteger(cfg.initialRpm());
             Gauge.builder("llm.rate.rpm", holder, AtomicInteger::doubleValue)
                     .description("적응형 토큰 버킷의 현재 RPM (429 피드백으로 자가 조정)")
-                    .tag("model", m)
+                    .tag("bucket", m)
                     .register(meters);
             return holder;
         });
     }
 
-    private Timer waitTimer(String model) {
-        return waitTimers.computeIfAbsent(model, m -> Timer.builder("llm.rate.wait")
+    private Timer waitTimer(String bucket) {
+        return waitTimers.computeIfAbsent(bucket, m -> Timer.builder("llm.rate.wait")
                 .description("LLM 호출 전 permit 대기 시간")
-                .tag("model", m)
+                .tag("bucket", m)
                 .register(meters));
     }
 
@@ -195,12 +195,12 @@ public class AdaptiveRateLimiter {
         return (System.nanoTime() - startNanos) / 1_000_000;
     }
 
-    private static void sleep(long ms, String model) {
+    private static void sleep(long ms, String bucket) {
         try {
             Thread.sleep(ms);
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
-            throw new RateLimitWaitTimeoutException("permit 대기 중 인터럽트: model=" + model);
+            throw new RateLimitWaitTimeoutException("permit 대기 중 인터럽트: bucket=" + bucket);
         }
     }
 }

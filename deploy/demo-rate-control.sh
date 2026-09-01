@@ -17,7 +17,7 @@ REDIS="docker exec sjw-redis redis-cli"
 PSQL="docker exec sjw-postgres psql -U sjw -d sjw -t -A -c"
 
 MODEL="${GEMINI_MODEL:-gemini-3.1-flash-lite}"
-BUCKET="rate:bucket:$MODEL"
+BUCKET="rate:bucket:default:$MODEL"   # 버킷 스코프 = {tenant}:{model} (M2.5-S6, ADR-020)
 N="${N:-30}"                 # 번역 문장 수 = 소모할 무료 quota 상한
 OFFSET="${OFFSET:-200}"      # eval300 코퍼스 내 시작 위치 (demo-resume.sh와 겹치지 않게)
 TIMEOUT="${TIMEOUT:-900}"

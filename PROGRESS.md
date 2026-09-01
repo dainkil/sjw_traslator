@@ -79,7 +79,7 @@ curl -s localhost:8080/api/v1/translations/<jobId> # → SUCCEEDED + 번역
 
 ### 5.1 다음: M2.5 — 교체 가능성 + 품질 게이트 + 배포 기반 (5~6일)
 
-계획서 §10 M2.5가 정본이다. **진행 (2026-09-01): S1(Flyway + ADR 6건) · S2(모델 레지스트리 + Translator 포트, 3모델 설정 교체 실증) · S3(EntityRecognizer 포트 http/rule, 골든셋 A/B 수치 확보) · S4(KnowledgeSource 포트, 정조 KB 기동 실증, 체크섬 버전, ADR-018) · S5(품질 게이트: quality_grade + T1 승격 + 오탐률 3.9% 선측정 + score_db.py 기준선 chrF 41.52/인명 99.09%, ADR-019) 완료 — 수용 기준 1·2·3·4(런타임 게이트 부분)·6(어댑터 부분) 충족.** 요약:
+계획서 §10 M2.5가 정본이다. **진행 (2026-09-01): S1(Flyway + ADR 6건) · S2(모델 레지스트리 + Translator 포트, 3모델 설정 교체 실증) · S3(EntityRecognizer 포트 http/rule, 골든셋 A/B 수치 확보) · S4(KnowledgeSource 포트, 정조 KB 기동 실증, 체크섬 버전, ADR-018) · S5(품질 게이트: quality_grade + T1 승격 + 오탐률 3.9% 선측정 + score_db.py 기준선 chrF 41.52/인명 99.09%, ADR-019) · S6(BYOK/테넌트: X-Api-Key 해시 식별 + 일일 상한 429 + rate:bucket:{tenant}:{model} + X-Llm-Key 요청 단위 클라이언트·비저장 검증, ADR-020 — 단, BYOK는 동기/SSE만, 배치는 운영자 키) 완료 — 수용 기준 1·2·3·4(런타임 게이트)·6(어댑터) 충족.** 요약:
 
 1. **포트 3종** `Translator` / `EntityRecognizer` / `KnowledgeSource` — 각각 실구현 2개 이상. 구현체 1개짜리 인터페이스는 만들지 않는다
 2. **모델 레지스트리** `sjw.llm.models[]{id, provider, tier, rpd, 단가}` — rate 버킷 키·원장 단가·M4 티어 매핑·quota 풀링의 단일 출처. `CostLedgerRepository`의 단가 0 하드코딩을 유료 환산값으로 교체
@@ -102,7 +102,7 @@ curl -s localhost:8080/api/v1/translations/<jobId> # → SUCCEEDED + 번역
 ### 5.2 미작성 ADR
 
 **작성 완료 (2026-09-01, M2.5-S1):** 004(KB in-memory) / 007(Tool Calling 배제) / 008(ChatMemory 배제) / 012(Kafka·MSA·K8s 배제) / 021(단일 워커 — 처리량 실측 근거) / 023(Flyway).
-**남은 M2.5 산출물:** 020(BYOK) / 022(배포 타겟) — 018(S4)·019(S5) 작성 완료. 009~011·013은 M3~M5에서.
+**남은 M2.5 산출물:** 022(배포 타겟) — 018(S4)·019(S5)·020(S6) 작성 완료. 009~011·013은 M3~M5에서.
 
 ## 6. 세션 운영 규칙 (Claude Code로 재개할 때)
 
