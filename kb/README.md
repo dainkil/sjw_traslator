@@ -1,6 +1,7 @@
-# kb/ — 인조 연간 인물 지식베이스
+# kb/ — 왕대별 인물 지식베이스
 
-선행 연구에서 구축한 결정론적 엔티티 링킹용 KB. 서빙 시스템(Worker)이 in-memory로 로드한다 (ADR-004).
+선행 연구에서 구축한 결정론적 엔티티 링킹용 KB. 서빙 시스템이 in-memory로 로드한다 (ADR-004).
+왕대는 설정으로 고른다: `KB_NAME=injo|jeongjo` (`FileKnowledgeSource`, ADR-018 — 코드 수정 0줄 교체).
 
 ## 파일
 
@@ -8,6 +9,8 @@
 |---|---|---|
 | `id_lookup_injo.json` | 인물 ID → 메타데이터 (`한글_명`, `한자_명`, `본관_표준`, `활동_시작`, `활동_종료`, `관직_리스트`) | 2,690명, 1.6MB |
 | `inverted_index_injo.json` | 표층형(한자 이름) → 인물 ID 리스트 역색인 | 9,403 키, 443KB |
+| `id_lookup_jeongjo.json` | 정조 연간 동일 스키마 | 2,152명, 1.2MB |
+| `inverted_index_jeongjo.json` | 정조 연간 역색인 | 8,030 키, 360KB |
 | `data_ContextInjection.py` | 엔티티 링킹 정본 로직 (아래 참조) | — |
 
 ## 링킹 알고리즘 (정본)
@@ -35,4 +38,5 @@ research/kb-build/main_run.py    # 실행 드라이버
 
 ## KB 버전
 
-현재 버전: `injo-v1`. 캐시 무효화 전략(`kb_version`을 L2 캐시 키에 포함)은 ADR-009에서 결정한다.
+버전은 설정값이 아니라 **데이터 파일 체크섬에서 파생**된다: `{name}-{SHA-256 앞 8자리}` (예: `injo-…`, `jeongjo-2abe1183`).
+파일이 1바이트라도 바뀌면 버전이 갈리므로 캐시 무효화(`kb_version`을 L2 캐시 키에 포함, ADR-009)가 이 값을 신뢰할 수 있다.

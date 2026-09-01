@@ -11,13 +11,34 @@ import org.junit.jupiter.api.Test;
  * 실제 KB 파일 대상, Python 원본(kb/data_ContextInjection.py)과의 동작 일치 검증.
  * 고정값은 kb/inverted_index_injo.json에서 확인한 실데이터다.
  */
-class KnowledgeBaseTest {
+class KnowledgeSourceTest {
 
-    static KnowledgeBase kb;
+    static FileKnowledgeSource kb;
 
     @BeforeAll
     static void load() throws IOException {
-        kb = new KnowledgeBase("../kb", "injo-v1-test");
+        kb = new FileKnowledgeSource("../kb", "injo");
+    }
+
+    @Test
+    void 버전은_데이터_체크섬에서_파생된다() {
+        assertTrue(kb.version().matches("injo-[0-9a-f]{8}"), kb.version());
+    }
+
+    @Test
+    void 정조_KB도_같은_코드로_로드된다() throws IOException {
+        var jeongjo = new FileKnowledgeSource("../kb", "jeongjo");
+        assertTrue(jeongjo.version().matches("jeongjo-[0-9a-f]{8}"), jeongjo.version());
+        // 정조 연간의 대표 인물이 링킹되는지 — 채제공(蔡濟恭)
+        LinkResult r = jeongjo.link("蔡濟恭", 1790, "左議政蔡濟恭");
+        assertTrue(r.stage() != LinkResult.Stage.MISS, "정조 KB에서 蔡濟恭 미검색: " + r.stage());
+    }
+
+    @Test
+    void NoOp은_항상_MISS_버전은_noop() {
+        var noop = new NoOpKnowledgeSource();
+        assertEquals("noop", noop.version());
+        assertEquals(LinkResult.Stage.MISS, noop.link("李元翼", 1623, "領議政李元翼").stage());
     }
 
     @Test

@@ -3,25 +3,30 @@ package dev.sjw.common.kb;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Component;
 
 /**
- * 인조 연간 인물 KB — in-memory 상주 (ADR-004).
+ * 파일 기반 인물 KB — in-memory 상주 (ADR-004). name으로 왕대를 고른다
+ * (id_lookup_{name}.json / inverted_index_{name}.json — injo, jeongjo 커밋됨).
  * 링킹 로직은 kb/data_ContextInjection.py의 이식 (ADR-015):
  * 역색인 후보 생성 → 활동시기 필터 → 관직-문맥 매칭.
+ *
+ * version은 데이터 파일 체크섬에서 파생된다 — M3 캐시 무효화가 이 값을 믿으려면
+ * "데이터가 바뀌면 반드시 바뀌는" 성질이 필요하고, 자유 문자열에는 그것이 없다.
  */
-@Component
-public class KnowledgeBase {
+public class FileKnowledgeSource implements KnowledgeSource {
 
-    private static final Logger log = LoggerFactory.getLogger(KnowledgeBase.class);
+    private static final Logger log = LoggerFactory.getLogger(FileKnowledgeSource.class);
     private static final Pattern PAREN = Pattern.compile("\\(.*?\\)");
     private static final Pattern HANJA_IN_PAREN = Pattern.compile("\\((.*?)\\)");
     private static final int MAX_AMBIGUOUS = 3;
@@ -30,27 +35,41 @@ public class KnowledgeBase {
     private final Map<String, List<String>> invertedIndex;
     private final String version;
 
-    public KnowledgeBase(@Value("${sjw.kb.dir}") String kbDir,
-                         @Value("${sjw.kb.version}") String version) throws IOException {
+    public FileKnowledgeSource(String kbDir, String name) throws IOException {
         ObjectMapper om = new ObjectMapper();
-        Path dir = Path.of(kbDir);
-        this.idLookup = om.readValue(dir.resolve("id_lookup_injo.json").toFile(),
-                new TypeReference<>() {});
-        this.invertedIndex = om.readValue(dir.resolve("inverted_index_injo.json").toFile(),
-                new TypeReference<>() {});
-        this.version = version;
+        Path lookupFile = Path.of(kbDir).resolve("id_lookup_" + name + ".json");
+        Path indexFile = Path.of(kbDir).resolve("inverted_index_" + name + ".json");
+        this.idLookup = om.readValue(lookupFile.toFile(), new TypeReference<>() {});
+        this.invertedIndex = om.readValue(indexFile.toFile(), new TypeReference<>() {});
+        this.version = name + "-" + checksum8(lookupFile, indexFile);
         log.info("KB 로드: 인물 {}명, 역색인 {}키 (version={})",
                 idLookup.size(), invertedIndex.size(), version);
     }
 
+    /** 두 데이터 파일 바이트의 SHA-256 앞 8자리 — 파일이 1바이트라도 다르면 버전이 갈린다. */
+    private static String checksum8(Path... files) throws IOException {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            for (Path f : files) {
+                md.update(Files.readAllBytes(f));
+            }
+            return HexFormat.of().formatHex(md.digest()).substring(0, 8);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    @Override
     public String version() {
         return version;
     }
 
+    @Override
     public KbPerson person(String id) {
         return idLookup.get(id);
     }
 
+    @Override
     public LinkResult link(String mention, int currentYear, String contextText) {
         List<String> candidates = invertedIndex.get(mention);
         if (candidates == null || candidates.isEmpty()) {

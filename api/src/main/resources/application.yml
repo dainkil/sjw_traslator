@@ -49,8 +49,10 @@ sjw:
     url: ${NER_URL:http://localhost:8100}
     mode: ${NER_MODE:http}   # http(ONNX 서버, 운영) | rule(규칙 축소판 — degrade/A/B)
   kb:
+    mode: ${KB_MODE:file}   # file(왕대별 데이터) | noop(무주입 대조군·degrade)
     dir: ${KB_DIR:../kb}
-    version: injo-v1
+    name: ${KB_NAME:injo}   # id_lookup_{name}.json / inverted_index_{name}.json — injo, jeongjo 커밋됨
+    # version은 설정이 아니다 — 데이터 파일 체크섬에서 파생된다 (M3 캐시 무효화의 신뢰 근거)
 
 management:
   endpoints:
