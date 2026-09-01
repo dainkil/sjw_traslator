@@ -41,8 +41,11 @@ public class TranslationService {
         return model;
     }
 
-    public TranslationResponse translate(String text, Integer year) {
-        long start = System.nanoTime();
+    /** 파이프라인 전처리 결과 (①NER ②링킹 ③프롬프트) — 동기·스트림 경로가 공유한다. */
+    public record Prepared(String prompt, List<EntityDto> entities,
+                           List<UncertainSpan> kbMisses, Map<String, Long> latencyMs) {}
+
+    public Prepared prepare(String text, Integer year) {
         Map<String, Long> lat = new LinkedHashMap<>();
         int currentYear = year == null ? Integer.MAX_VALUE : year;
 
@@ -84,9 +87,29 @@ public class TranslationService {
         t = System.nanoTime();
         String prompt = promptAssembler.assemble(text, linked);
         lat.put("prompt", ms(t));
+        return new Prepared(prompt, entityDtos, kbMisses, lat);
+    }
+
+    /**
+     * 단건 SSE용 토큰 스트리밍 (D7). Structured Output 없이 번역문만 흘린다 —
+     * 스키마 보장이 필요한 소비자는 동기/비동기 경로를 쓴다.
+     */
+    public reactor.core.publisher.Flux<String> translateStream(Prepared prep) {
+        return chatClient.prompt()
+                .user(prep.prompt() + "\n번역문만 출력하세요. 다른 텍스트를 붙이지 마세요.")
+                .stream().content();
+    }
+
+    public TranslationResponse translate(String text, Integer year) {
+        long start = System.nanoTime();
+        Prepared prep = prepare(text, year);
+        Map<String, Long> lat = new LinkedHashMap<>(prep.latencyMs());
+        List<EntityDto> entityDtos = prep.entities();
+        List<UncertainSpan> kbMisses = prep.kbMisses();
+        String prompt = prep.prompt();
 
         // ④ LLM 호출 (Structured Output — 변환을 수동으로 하여 파싱 실패 시에도 usage를 보존)
-        t = System.nanoTime();
+        long t = System.nanoTime();
         var converter = new org.springframework.ai.converter.BeanOutputConverter<>(LlmOutput.class);
         var chatResponse = chatClient.prompt()
                 .user(prompt + "\n" + converter.getFormat())
