@@ -9,7 +9,7 @@
 |---|---|---|
 | M0 리프레이밍 + 비용/시간 모델 | ✅ 완료 | `docs/cost-model.md` (파라미터화, 토큰 실측 반영) |
 | M1 단건 동기 경로 | ✅ 완료 | `docs/benchmarks.md` — LLM이 p95의 99.7~99.9% 확정 |
-| **M2 비동기 + 배치 엔진** | **S1~S5 완료, S6 남음** | 아래 §3 |
+| M2 비동기 + 배치 엔진 | ✅ 완료 (2026-09-01) | 아래 §3 — 수용 기준 3종 증거 상태 포함 |
 | **M2.5 교체 가능성 + 품질 게이트 + 배포 기반** | **신설 (2026-09-01 계획 개정)** | 계획서 §10 M2.5 — M3·M4의 전제 |
 | M3 템플릿 슬롯 캐싱 | 예정 | |
 | M4 NER 비용 라우팅 | 예정 | |
@@ -24,8 +24,9 @@
 - 완역 비용: 유료 $842≈118만 원/0.9일 vs **무료 단일 모델(RPD 20 실측) 173년**
 - 무료 quota는 **모델별 독립** → 티어 라우팅(M4) = quota 풀링
 - 무료 모델 현황: `gemini-3.5-flash`(T1, RPD 20 — 아껴 쓸 것) / `gemini-3.1-flash-lite`(개발 기본, p50 3.0s) / `gemma-4-26b-a4b-it`(혼잡 변동 큼) / `gemini-2.5-flash`(신규 프로젝트 단종 — 404)
+- 배치 처리량 **23 jobs/min** (flash-lite) — 워커 1대와 2대가 동일 (23.4 vs 23.1), 중복 호출 0건 → D11(단일 워커)의 실측 근거
 
-## 3. M2 완료분 (S1~S5)
+## 3. M2 완료분 (S1~S6)
 
 | 단계 | 내용 | 실증 |
 |---|---|---|
@@ -34,6 +35,9 @@
 | S3 | 배치 엔진: BatchPump(커서 발행), pause/resume, 예산 사전 검증(422) | **`deploy/demo-resume.sh`: kill -9 → 재개 → 12/12, job당 호출 최대 1회 (중복 0건 증명)** |
 | S4 | 실패 분류 9종(429를 SPEND_CAP/QUOTA_DAILY/RATE_LIMITED로 3분할), DLQ 적재, Resilience4j retry+서킷, 파싱 실패 시에도 토큰 원장 기록, QUOTA_DAILY 시 배치 자동 일시정지 | 분류기 테스트 8건 + DLQ 실동작 데모(404 유발) |
 | S5 | 적응형 rate control: Redis Lua 토큰버킷(멀티워커 공유) + AIMD(429→절반, 연속 성공→+1 RPM), 고정 페이싱 제거 | `deploy/demo-rate-control.sh`, 리미터 테스트 (ADR-017) |
+| S6 | 단건 SSE 스트리밍(entities→token→done), 배치 처리량 실측, rate 데모 판정 | benchmarks.md M2 섹션 — 처리량 23 jobs/min, 워커 2배에도 동일, 중복 0건 |
+
+**M2 수용 기준 증거 상태:** ① 강제 종료→재개 중복 0건 = `demo-resume.sh` 라이브 증명 ✅ ② 429→하향→상향 = **라이브 유발 실패** (60 RPM·2워커에서도 429 0건 — provider 유효 한도 미달), AIMD 자체는 실측 429 원문 기반 단위 테스트로 검증, 강제 429 라이브 검증은 M6 mock provider로 이관 ③ DLQ 분류 적재 = 404 유발 라이브 증명 ✅. 상세는 benchmarks.md.
 
 ## 4. 새 컴퓨터 셋업 (순서대로)
 
@@ -73,13 +77,7 @@ curl -s localhost:8080/api/v1/translations/<jobId> # → SUCCEEDED + 번역
 
 > **2026-09-01 계획 개정.** 계획 검토 결과 M3·M4가 둘 다 아직 없는 추상화(모델 레지스트리, 검증된 `kb_version`, 품질 게이트)에 의존한다는 점이 확인되어, **M2.5를 M3 앞에 삽입**했다. 개정 전문은 [PROJECT_PLAN.md](PROJECT_PLAN.md) §5.4 / §10 / §15.
 
-### 5.1 먼저: M2-S6 (M2 마감)
-
-- 단건 SSE 스트리밍 — **작업 중** (working tree에 미커밋: `TranslationController.translateStream`, `TranslationService.prepare/translateStream`)
-- `docs/benchmarks.md`에 배치 처리량 실측 추가
-- M2 수용 기준 3종 데모 정리 (재개 / rate / DLQ) → M2 완료 push
-
-### 5.2 다음: M2.5 — 교체 가능성 + 품질 게이트 + 배포 기반 (5~6일)
+### 5.1 다음: M2.5 — 교체 가능성 + 품질 게이트 + 배포 기반 (5~6일)
 
 계획서 §10 M2.5가 정본이다. 요약:
 
@@ -101,7 +99,7 @@ curl -s localhost:8080/api/v1/translations/<jobId> # → SUCCEEDED + 번역
 | 품질 게이트 부재 | `JobProcessor:133` | LLM이 200이면 무조건 성공 |
 | 단가 미기록 | `CostLedgerRepository:22` | `VALUES (…, 0, 0, 0)` |
 
-### 5.3 미작성 ADR
+### 5.2 미작성 ADR
 
 018~023이 M2.5 산출물. **배제 ADR 007(Tool Calling) / 008(ChatMemory) / 012(Kafka·MSA·K8s)와 004는 코드가 필요 없어 지금 바로 쓸 수 있다.**
 
