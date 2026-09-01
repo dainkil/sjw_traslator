@@ -28,7 +28,7 @@ public final class TranslationDtos {
     ) {}
 
     public record Meta(
-            String model, String kbVersion,
+            String model, String kbVersion, String promptVersion,
             Integer tokensIn, Integer tokensOut,
             Map<String, Long> latencyMs
     ) {}

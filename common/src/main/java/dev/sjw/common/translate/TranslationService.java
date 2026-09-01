@@ -145,7 +145,7 @@ public class TranslationService {
                 out == null ? null : out.translatedText(),
                 entityDtos,
                 uncertain,
-                new Meta(t.modelId(), kb.version(),
+                new Meta(t.modelId(), kb.version(), promptAssembler.version(),
                         reply.tokensIn(), reply.tokensOut(), lat)
         );
     }

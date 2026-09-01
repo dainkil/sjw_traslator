@@ -186,7 +186,7 @@ public class JobProcessor {
                     JSON.writeValueAsString(resp.uncertainSpans()));
             jobs.markSucceeded(jobId, resp.meta().model(), null /* cacheHit — M3 */,
                     resp.meta().tokensIn(), resp.meta().tokensOut(), resp.meta().kbVersion(),
-                    verdict.grade().name());
+                    resp.meta().promptVersion(), verdict.grade().name());
             return Outcome.ACK;
         } catch (RateLimitWaitTimeoutException wait) {
             log.warn("job {} permit 대기 상한 — 미ACK 재전달: {}", jobId, wait.getMessage());

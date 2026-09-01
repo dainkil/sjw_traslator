@@ -72,15 +72,16 @@ public class TranslationJobRepository {
 
     public void markSucceeded(UUID id, String model, String cacheHitLevel,
                               Integer tokensIn, Integer tokensOut, String kbVersion,
-                              String qualityGrade) {
+                              String promptVersion, String qualityGrade) {
         jdbc.sql("""
                 UPDATE translation_job
                 SET status = 'SUCCEEDED', model_used = ?, cache_hit_level = ?,
-                    tokens_in = ?, tokens_out = ?, kb_version = ?, quality_grade = ?,
-                    completed_at = now()
+                    tokens_in = ?, tokens_out = ?, kb_version = ?, prompt_version = ?,
+                    quality_grade = ?, completed_at = now()
                 WHERE id = ?
                 """)
-                .params(model, cacheHitLevel, tokensIn, tokensOut, kbVersion, qualityGrade, id)
+                .params(model, cacheHitLevel, tokensIn, tokensOut, kbVersion, promptVersion,
+                        qualityGrade, id)
                 .update();
     }
 
