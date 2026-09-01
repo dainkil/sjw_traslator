@@ -5,9 +5,10 @@ spring:
     url: jdbc:postgresql://localhost:5433/sjw
     username: sjw
     password: sjw
-  sql:
-    init:
-      mode: always   # schema.sql (CREATE IF NOT EXISTS — 멱등)
+  flyway:
+    # 스키마는 Flyway 마이그레이션(db/migration/)으로만 변경한다 (ADR-023).
+    # V1 이전 방식(schema.sql 직접 실행)으로 만들어진 기존 DB는 버전 1로 기준선 처리.
+    baseline-on-migrate: true
   ai:
     google:
       genai:

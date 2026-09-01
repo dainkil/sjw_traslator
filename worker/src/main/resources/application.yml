@@ -17,7 +17,7 @@ spring:
     password: sjw
   sql:
     init:
-      mode: never   # 스키마는 api가 초기화 (api/src/main/resources/schema.sql)
+      mode: never   # 스키마는 api의 Flyway가 관리 (api/src/main/resources/db/migration/, ADR-023)
 
 server:
   port: 8081
