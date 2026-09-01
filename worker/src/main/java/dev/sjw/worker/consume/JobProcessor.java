@@ -162,9 +162,9 @@ public class JobProcessor {
                 Retry.decorateCallable(retry, guarded));
         try {
             TranslationResponse resp = call.call();
-            ledger.record(jobId, resp.meta().model(),
+            var cost = ledger.record(jobId, resp.meta().model(),
                     resp.meta().tokensIn(), resp.meta().tokensOut(), tenant);
-            meters.counter("tenant.calls", "tenant", tenant).increment();
+            recordCallMetrics(resp, cost, tenant);
 
             // 품질 게이트 (§5.4): 확정 엔티티 반영 여부의 결정론 검사 — LLM 추가 호출 0회
             QualityGate.Verdict verdict = qualityGate.grade(resp);
@@ -175,7 +175,7 @@ public class JobProcessor {
                     verdict = qualityGate.grade(resp);
                 }
             }
-            meters.counter("sjw.quality.grade", "grade", verdict.grade().name()).increment();
+            meters.counter("translation.quality.grade", "grade", verdict.grade().name()).increment();
             if (verdict.grade() == QualityGrade.REJECTED) {
                 // 승격 후에도 실패 — 검수 큐 = quality_grade REJECTED 행 (번역은 반환하되 등급으로 격리)
                 log.warn("job {} REJECTED (누락: {}) — 검수 큐 대상", jobId, verdict.missingNames());
@@ -199,6 +199,27 @@ public class JobProcessor {
         }
     }
 
+    /** §9.1 계측 — 기능을 만든 마일스톤에서 그 기능의 메트릭을 함께 계측한다는 원칙의 이행. */
+    private void recordCallMetrics(TranslationResponse resp, dev.sjw.common.llm.ModelRegistry.Cost cost,
+                                   String tenant) {
+        meters.counter("tenant.calls", "tenant", tenant).increment();
+        if (cost.krw() != null) {
+            meters.counter("translation.cost.krw", "model", resp.meta().model())
+                    .increment(cost.krw().doubleValue());
+        }
+        if (resp.meta().tokensIn() != null) {
+            meters.counter("llm.tokens", "direction", "in").increment(resp.meta().tokensIn());
+        }
+        if (resp.meta().tokensOut() != null) {
+            meters.counter("llm.tokens", "direction", "out").increment(resp.meta().tokensOut());
+        }
+        if (resp.meta().latencyMs() != null) {
+            resp.meta().latencyMs().forEach((stage, ms) -> meters
+                    .timer("translation.latency", "stage", stage)
+                    .record(java.time.Duration.ofMillis(ms)));
+        }
+    }
+
     /**
      * REJECTED → 상위 티어 1회 재호출 (§5.4 품질 기반 상향 라우팅). 승격 호출도
      * 해당 모델 버킷의 permit·원장 기록을 지킨다. 승격 실패(quota 소진 등)는 job을
@@ -212,14 +233,16 @@ public class JobProcessor {
         }
         String bucket = QueueKeys.rateScope(tenant, tierUpModel);
         log.info("job {} REJECTED (누락: {}) — {} 로 승격 재호출", jobId, verdict.missingNames(), tierUpModel);
-        meters.counter("sjw.quality.tier_up").increment();
+        meters.counter("translation.quality.upgrade").increment();
         try {
             rateLimiter.acquire(bucket);
             try {
                 TranslationResponse r = translationService.translate(
                         prep, translatorFactory.forModel(tierUpModel));
                 rateLimiter.onSuccess(bucket);
-                ledger.record(jobId, r.meta().model(), r.meta().tokensIn(), r.meta().tokensOut(), tenant);
+                var upCost = ledger.record(jobId, r.meta().model(),
+                        r.meta().tokensIn(), r.meta().tokensOut(), tenant);
+                recordCallMetrics(r, upCost, tenant);
                 return r;
             } catch (Exception e) {
                 if (classifier.classify(e) == ErrorClass.RATE_LIMITED) {
@@ -240,6 +263,10 @@ public class JobProcessor {
 
     private Outcome onFailure(JobRow job, Exception e, long deliveryCount) {
         ErrorClass c = classifier.classify(e);
+        if (c == ErrorClass.NER_UNAVAILABLE) {
+            // §9.1: 무주입 번역이 조용히 통과하지 않았음의 증거 시계열
+            meters.counter("ner.unavailable").increment();
+        }
         log.error("job {} 실패[{}] (delivery {}): {}", job.id(), c, deliveryCount, brief(e));
 
         // 파싱 실패도 호출은 발생 — 원장에 기록 (과금 회계 정확성)
