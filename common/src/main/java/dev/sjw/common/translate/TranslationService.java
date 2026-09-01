@@ -104,22 +104,30 @@ public class TranslationService {
      * 재시도가 LLM 호출만 반복한다.
      */
     public TranslationResponse translate(Prepared prep) {
+        return translate(prep, translator);
+    }
+
+    /**
+     * 지정 Translator로 호출 — 품질 게이트의 티어 승격(§5.4)이 상위 모델을 1회성으로
+     * 쓰는 경로. 페이싱·원장 기록은 호출자(JobProcessor) 책임이다.
+     */
+    public TranslationResponse translate(Prepared prep, Translator t) {
         Map<String, Long> lat = new LinkedHashMap<>(prep.latencyMs());
         List<EntityDto> entityDtos = prep.entities();
         List<UncertainSpan> kbMisses = prep.kbMisses();
         String prompt = prep.prompt();
 
         // ④ LLM 호출 (Structured Output — 변환을 수동으로 하여 파싱 실패 시에도 usage를 보존)
-        long t = System.nanoTime();
+        long time = System.nanoTime();
         var converter = new org.springframework.ai.converter.BeanOutputConverter<>(LlmOutput.class);
-        Translator.LlmReply reply = translator.call(prompt + "\n" + converter.getFormat());
-        lat.put("llm", ms(t));
+        Translator.LlmReply reply = t.call(prompt + "\n" + converter.getFormat());
+        lat.put("llm", ms(time));
 
         LlmOutput out;
         try {
             out = converter.convert(reply.text() == null ? "" : reply.text());
         } catch (RuntimeException parseError) {
-            throw new LlmParseException(translator.modelId(),
+            throw new LlmParseException(t.modelId(),
                     reply.tokensIn(), reply.tokensOut(), parseError);
         }
         lat.put("total", lat.values().stream().mapToLong(Long::longValue).sum());
@@ -132,7 +140,7 @@ public class TranslationService {
                 out == null ? null : out.translatedText(),
                 entityDtos,
                 uncertain,
-                new Meta(translator.modelId(), kb.version(),
+                new Meta(t.modelId(), kb.version(),
                         reply.tokensIn(), reply.tokensOut(), lat)
         );
     }

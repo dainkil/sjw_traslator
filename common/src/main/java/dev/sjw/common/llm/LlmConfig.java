@@ -16,7 +16,12 @@ public class LlmConfig {
     }
 
     @Bean
-    public Translator translator(ChatClient.Builder builder, ModelRegistry registry) {
-        return new GoogleGenAiTranslator(builder, registry.active().id());
+    public TranslatorFactory translatorFactory(ChatClient.Builder builder, ModelRegistry registry) {
+        return new TranslatorFactory(builder, registry);
+    }
+
+    @Bean
+    public Translator translator(TranslatorFactory factory, ModelRegistry registry) {
+        return factory.forModel(registry.active().id());
     }
 }
