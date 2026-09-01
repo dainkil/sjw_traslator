@@ -10,7 +10,7 @@
 | M0 리프레이밍 + 비용/시간 모델 | ✅ 완료 | `docs/cost-model.md` (파라미터화, 토큰 실측 반영) |
 | M1 단건 동기 경로 | ✅ 완료 | `docs/benchmarks.md` — LLM이 p95의 99.7~99.9% 확정 |
 | M2 비동기 + 배치 엔진 | ✅ 완료 (2026-09-01) | 아래 §3 — 수용 기준 3종 증거 상태 포함 |
-| **M2.5 교체 가능성 + 품질 게이트 + 배포 기반** | **신설 (2026-09-01 계획 개정)** | 계획서 §10 M2.5 — M3·M4의 전제 |
+| M2.5 교체 가능성 + 품질 게이트 + 배포 기반 | ✅ 완료 (2026-09-01) | §5.1 수용 기준 판정 — 포트 3종·품질 게이트·BYOK·compose 전 스택 |
 | M3 템플릿 슬롯 캐싱 | 예정 | |
 | M4 NER 비용 라우팅 | 예정 | |
 | M5 비용 SLI + 예산 서킷브레이커 | 예정 | |
@@ -50,8 +50,13 @@ echo "GEMINI_MODEL=gemini-3.1-flash-lite" >> .env
 # 주의: 키는 반드시 '결제 미연동' 프로젝트에서 발급 (ADR-016).
 #       키를 바꾸면 모델 탐침을 다시 돌릴 것 (docs/troubleshooting.md §3).
 
-# 2) 인프라
-docker compose -f deploy/docker-compose.yml up -d
+# 지름길 (M2.5-S8): NER 모델을 한 번 export해 두면 전 스택이 컨테이너로 뜬다 —
+#   cd ner-server && uv sync && uv run python scripts/export_onnx.py && cd ..
+#   docker compose -f deploy/docker-compose.yml up -d --build
+# 아래 2)~4)는 로컬 gradle 개발 경로다.
+
+# 2) 인프라만
+docker compose -f deploy/docker-compose.yml up -d redis postgres
 
 # 3) NER 서버 (최초 1회 모델 변환 ~700MB 다운로드)
 cd ner-server && uv sync && uv run python scripts/export_onnx.py
@@ -77,9 +82,19 @@ curl -s localhost:8080/api/v1/translations/<jobId> # → SUCCEEDED + 번역
 
 > **2026-09-01 계획 개정.** 계획 검토 결과 M3·M4가 둘 다 아직 없는 추상화(모델 레지스트리, 검증된 `kb_version`, 품질 게이트)에 의존한다는 점이 확인되어, **M2.5를 M3 앞에 삽입**했다. 개정 전문은 [PROJECT_PLAN.md](PROJECT_PLAN.md) §5.4 / §10 / §15.
 
-### 5.1 다음: M2.5 — 교체 가능성 + 품질 게이트 + 배포 기반 (5~6일)
+### 5.1 M2.5 완료 기록 (다음 작업은 M3 — 템플릿 슬롯 캐싱, 계획서 §10)
 
-계획서 §10 M2.5가 정본이다. **진행 (2026-09-01): S1(Flyway + ADR 6건) · S2(모델 레지스트리 + Translator 포트, 3모델 설정 교체 실증) · S3(EntityRecognizer 포트 http/rule, 골든셋 A/B 수치 확보) · S4(KnowledgeSource 포트, 정조 KB 기동 실증, 체크섬 버전, ADR-018) · S5(품질 게이트: quality_grade + T1 승격 + 오탐률 3.9% 선측정 + score_db.py 기준선 chrF 41.52/인명 99.09%, ADR-019) · S6(BYOK/테넌트: X-Api-Key 해시 식별 + 일일 상한 429 + rate:bucket:{tenant}:{model} + X-Llm-Key 요청 단위 클라이언트·비저장 검증, ADR-020 — 단, BYOK는 동기/SSE만, 배치는 운영자 키) · S7(프롬프트 외부화: 템플릿·패턴 리소스 파일 + prompt_version 체크섬 파생, 외부화 전후 프롬프트 바이트 동일 확인 tokens_in 754 불변) 완료 — 수용 기준 1·2·3·4(런타임 게이트)·6(어댑터) 충족.** 요약:
+계획서 §10 M2.5가 정본이다. **진행 (2026-09-01): S1(Flyway + ADR 6건) · S2(모델 레지스트리 + Translator 포트, 3모델 설정 교체 실증) · S3(EntityRecognizer 포트 http/rule, 골든셋 A/B 수치 확보) · S4(KnowledgeSource 포트, 정조 KB 기동 실증, 체크섬 버전, ADR-018) · S5(품질 게이트: quality_grade + T1 승격 + 오탐률 3.9% 선측정 + score_db.py 기준선 chrF 41.52/인명 99.09%, ADR-019) · S6(BYOK/테넌트: X-Api-Key 해시 식별 + 일일 상한 429 + rate:bucket:{tenant}:{model} + X-Llm-Key 요청 단위 클라이언트·비저장 검증, ADR-020 — 단, BYOK는 동기/SSE만, 배치는 운영자 키) · S7(프롬프트 외부화: 템플릿·패턴 리소스 파일 + prompt_version 체크섬 파생, 외부화 전후 프롬프트 바이트 동일 확인 tokens_in 754 불변) · S8(Dockerfile 3종 — NER은 INT8 174MB 동봉, compose 전 스택 라이브 E2E, GitHub Actions CI 테스트→빌드, §9.1 메트릭 이름 정렬 + cost/tokens/latency/ner.unavailable 계측, ADR-022 배포 타겟 = Oracle Always Free 우선) 완료.**
+
+**M2.5 수용 기준 최종 판정 (2026-09-01):**
+1. KB 정조 교체 기동, 코드 0줄 — ✅ 라이브 (`jeongjo-2abe1183`, 蔡濟恭 링크)
+2. NER 규칙 교체 + 품질 차이 수치 — ✅ 골든셋 recall 26.9% vs ONNX 100% (`NER_MODE=rule` 라이브 E2E)
+3. 모델 3종 설정 교체 — ✅ flash-lite·3.5-flash 라이브 200 (gemma-4는 라우팅 성공·응답은 혼잡 무응답 — 실측된 provider 특성, 교체 경로는 동일)
+4. REJECTED 검출 + 상위 티어 승격 + 오탐률 측정 — 게이트·승격 경로 구현 + 단위 테스트, 오탐률 3.9% 실측 ✅. **단, 라이브 REJECTED 자연 발생은 아직 미관측** (기준선 인명 재현율 99.09%라 드묾 — 운영 중 시계열로 확인)
+5. compose 전 스택 기동 — ✅ 라이브 (5컨테이너, 컨테이너 파이프라인 E2E SUCCEEDED. 이미지: api 604MB / worker 600MB / ner 973MB)
+6. 골든셋 채점 DB 직결 + 비열등 임계 판정 — ✅ `score_db.py` (위반 시 exit 1). **CI 스케줄 연결은 결과 DB가 생기는 배포(M6) 이후** — ci.yml 주석에 명시
+
+요약:
 
 1. **포트 3종** `Translator` / `EntityRecognizer` / `KnowledgeSource` — 각각 실구현 2개 이상. 구현체 1개짜리 인터페이스는 만들지 않는다
 2. **모델 레지스트리** `sjw.llm.models[]{id, provider, tier, rpd, 단가}` — rate 버킷 키·원장 단가·M4 티어 매핑·quota 풀링의 단일 출처. `CostLedgerRepository`의 단가 0 하드코딩을 유료 환산값으로 교체

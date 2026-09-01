@@ -22,8 +22,9 @@ public class CostLedgerRepository {
         this.registry = registry;
     }
 
-    public void record(UUID jobId, String model, Integer tokensIn, Integer tokensOut,
-                       String tenantId) {
+    /** @return 이 호출의 counterfactual 비용 — translation.cost.krw 계측(§9.1)에 쓰인다 */
+    public ModelRegistry.Cost record(UUID jobId, String model, Integer tokensIn, Integer tokensOut,
+                                     String tenantId) {
         ModelRegistry.Cost cost = registry.cost(model, tokensIn, tokensOut);
         jdbc.sql("""
                 INSERT INTO cost_ledger (job_id, model, tokens_in, tokens_out,
@@ -33,6 +34,7 @@ public class CostLedgerRepository {
                 .params(jobId, model, tokensIn, tokensOut,
                         cost.unitPriceIn(), cost.unitPriceOut(), cost.krw(), tenantId)
                 .update();
+        return cost;
     }
 
     public long countCallsForJob(UUID jobId) {
