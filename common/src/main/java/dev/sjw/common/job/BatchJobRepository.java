@@ -26,12 +26,13 @@ public class BatchJobRepository {
         this.jdbc = jdbc;
     }
 
-    public void insert(UUID id, String rangeSpecJson, int budgetLimitCalls, int totalCount) {
+    public void insert(UUID id, String rangeSpecJson, int budgetLimitCalls, int totalCount,
+                       String tenantId) {
         jdbc.sql("""
-                INSERT INTO batch_job (id, range_spec, budget_limit_calls, total_count, status)
-                VALUES (?, CAST(? AS jsonb), ?, ?, 'RUNNING')
+                INSERT INTO batch_job (id, range_spec, budget_limit_calls, total_count, status, tenant_id)
+                VALUES (?, CAST(? AS jsonb), ?, ?, 'RUNNING', ?)
                 """)
-                .params(id, rangeSpecJson, budgetLimitCalls, totalCount)
+                .params(id, rangeSpecJson, budgetLimitCalls, totalCount, tenantId)
                 .update();
     }
 

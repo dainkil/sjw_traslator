@@ -1,5 +1,6 @@
 package dev.sjw.api.job;
 
+import dev.sjw.api.tenant.TenantGuard;
 import dev.sjw.common.job.JobRow;
 import dev.sjw.common.job.JobStatus;
 import dev.sjw.common.job.TranslationJobRepository;
@@ -30,10 +31,13 @@ public class JobController {
 
     private final TranslationJobRepository jobs;
     private final StringRedisTemplate redis;
+    private final TenantGuard tenantGuard;
 
-    public JobController(TranslationJobRepository jobs, StringRedisTemplate redis) {
+    public JobController(TranslationJobRepository jobs, StringRedisTemplate redis,
+                         TenantGuard tenantGuard) {
         this.jobs = jobs;
         this.redis = redis;
+        this.tenantGuard = tenantGuard;
     }
 
     public record JobAccepted(UUID jobId, String status) {}
@@ -45,7 +49,10 @@ public class JobController {
     @PostMapping
     public ResponseEntity<JobAccepted> submit(@Valid @RequestBody TranslateRequest req,
                                               @RequestHeader(value = "Idempotency-Key", required = false)
-                                              String idempotencyKey) {
+                                              String idempotencyKey,
+                                              @RequestHeader(value = "X-Api-Key", required = false)
+                                              String apiKey) {
+        var tenant = tenantGuard.resolve(apiKey);
         if (idempotencyKey != null && !idempotencyKey.isBlank()) {
             var existing = jobs.findByIdempotencyKey(idempotencyKey);
             if (existing.isPresent()) {
@@ -55,9 +62,10 @@ public class JobController {
                         .body(new JobAccepted(j.id(), j.status().name()));
             }
         }
+        tenantGuard.charge(tenant, 1);
         UUID id = UUID.randomUUID();
         jobs.insertPending(id, idempotencyKey, req.text(), req.year(),
-                TextHash.normalizedHash(req.text()), null);
+                TextHash.normalizedHash(req.text()), null, tenant.id());
         publish(id);
         return ResponseEntity.status(HttpStatus.ACCEPTED)
                 .body(new JobAccepted(id, JobStatus.PENDING.name()));

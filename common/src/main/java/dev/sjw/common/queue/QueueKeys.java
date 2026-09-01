@@ -13,10 +13,21 @@ public final class QueueKeys {
     public static final String FIELD_JOB_ID = "jobId";
 
     /**
-     * 적응형 rate control의 토큰 버킷 (모델 단위).
-     * provider 무료 quota가 모델별로 독립이라서 키도 모델별이다 (실측: docs/benchmarks.md, ADR-016).
+     * 적응형 rate control의 토큰 버킷. scope = "{tenant}:{model}" ({@link #rateScope}) —
+     * provider 무료 quota가 모델별로 독립이고(실측, ADR-016), BYOK에서는 키가 테넌트별이라
+     * quota 풀 자체가 테넌트×모델 단위다 (D10, ADR-020).
      */
-    public static String rateBucket(String model) {
-        return "rate:bucket:" + model;
+    public static String rateBucket(String scope) {
+        return "rate:bucket:" + scope;
+    }
+
+    /** 버킷 스코프: 테넌트×모델. */
+    public static String rateScope(String tenantId, String model) {
+        return tenantId + ":" + model;
+    }
+
+    /** 테넌트 일일 소진량 카운터 (§8.3). 무료 티어에서는 호출 수가 예산이다. */
+    public static String budgetDaily(String tenantId, String yyyyMmDd) {
+        return "budget:daily:" + tenantId + ":" + yyyyMmDd;
     }
 }

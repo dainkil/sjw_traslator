@@ -91,7 +91,12 @@ public class TranslationService {
      * 스키마 보장이 필요한 소비자는 동기/비동기 경로를 쓴다.
      */
     public reactor.core.publisher.Flux<String> translateStream(Prepared prep) {
-        return translator.stream(prep.prompt() + "\n번역문만 출력하세요. 다른 텍스트를 붙이지 마세요.");
+        return translateStream(prep, translator);
+    }
+
+    /** BYOK(요청 단위 Translator)용 오버로드 (ADR-020). */
+    public reactor.core.publisher.Flux<String> translateStream(Prepared prep, Translator t) {
+        return t.stream(prep.prompt() + "\n번역문만 출력하세요. 다른 텍스트를 붙이지 마세요.");
     }
 
     public TranslationResponse translate(String text, Integer year) {

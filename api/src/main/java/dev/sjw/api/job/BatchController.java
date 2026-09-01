@@ -2,6 +2,7 @@ package dev.sjw.api.job;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.sjw.api.tenant.TenantGuard;
 import dev.sjw.common.job.BatchJobRepository;
 import dev.sjw.common.job.BatchRow;
 import dev.sjw.common.job.TranslationJobRepository;
@@ -36,14 +37,17 @@ public class BatchController {
     private final BatchJobRepository batches;
     private final TranslationJobRepository jobs;
     private final org.springframework.data.redis.core.StringRedisTemplate redisForBatch;
+    private final TenantGuard tenantGuard;
     private final String corpusPath;
 
     public BatchController(BatchJobRepository batches, TranslationJobRepository jobs,
                            org.springframework.data.redis.core.StringRedisTemplate redisForBatch,
+                           TenantGuard tenantGuard,
                            @Value("${sjw.eval.corpus:../eval/eval300_1925.json}") String corpusPath) {
         this.batches = batches;
         this.jobs = jobs;
         this.redisForBatch = redisForBatch;
+        this.tenantGuard = tenantGuard;
         this.corpusPath = corpusPath;
     }
 
@@ -57,7 +61,10 @@ public class BatchController {
                             int cursor, int budgetLimitCalls) {}
 
     @PostMapping
-    public ResponseEntity<?> create(@Valid @RequestBody CreateBatch req) throws IOException {
+    public ResponseEntity<?> create(@Valid @RequestBody CreateBatch req,
+                                    @org.springframework.web.bind.annotation.RequestHeader(value = "X-Api-Key", required = false)
+                                    String apiKey) throws IOException {
+        var tenant = tenantGuard.resolve(apiKey);
         // 예산 사전 검증: 예상 호출 수(=limit, 캐시 0% 가정)가 예산을 넘으면 시작 전에 거부 (§5.3)
         if (req.limit() > req.budgetLimitCalls()) {
             return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(java.util.Map.of(
@@ -71,17 +78,18 @@ public class BatchController {
                     "error", "RANGE_OUT_OF_BOUNDS", "corpusSize", corpus.size()));
         }
 
+        tenantGuard.charge(tenant, req.limit()); // 배치는 job 수만큼 선과금
         UUID batchId = UUID.randomUUID();
         String rangeSpec = JSON.writeValueAsString(java.util.Map.of(
                 "source", "eval300_1925", "offset", req.offset(), "limit", req.limit()));
-        batches.insert(batchId, rangeSpec, req.budgetLimitCalls(), req.limit());
+        batches.insert(batchId, rangeSpec, req.budgetLimitCalls(), req.limit(), tenant.id());
 
         for (int i = 0; i < req.limit(); i++) {
             JsonNode item = corpus.get(req.offset() + i);
             String text = item.get("original").asText();
             Integer year = reignYearToAd(item.get("id").asText());
             jobs.insertPending(UUID.randomUUID(), BatchJobRepository.batchKey(batchId, i),
-                    text, year, TextHash.normalizedHash(text), batchId);
+                    text, year, TextHash.normalizedHash(text), batchId, tenant.id());
         }
         return ResponseEntity.status(HttpStatus.ACCEPTED)
                 .body(new BatchView(batchId, "RUNNING", req.limit(), 0, 0, 0, req.budgetLimitCalls()));

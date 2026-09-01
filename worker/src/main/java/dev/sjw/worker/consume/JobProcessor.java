@@ -9,6 +9,8 @@ import dev.sjw.common.job.TranslationJobRepository;
 import dev.sjw.common.llm.TranslatorFactory;
 import dev.sjw.common.quality.QualityGate;
 import dev.sjw.common.quality.QualityGrade;
+import dev.sjw.common.queue.QueueKeys;
+import dev.sjw.common.tenant.Tenant;
 import dev.sjw.common.translate.LlmParseException;
 import dev.sjw.common.translate.TranslationDtos.TranslationResponse;
 import dev.sjw.common.translate.TranslationService;
@@ -132,6 +134,8 @@ public class JobProcessor {
         jobs.tryMarkRunning(jobId);
 
         String model = translationService.model();
+        String tenant = job.tenantId() == null ? Tenant.DEFAULT_ID : job.tenantId();
+        String bucket = QueueKeys.rateScope(tenant, model); // rate·quota는 테넌트x모델 단위 (D10)
         // 전처리(NER+링킹+조립)는 permit 밖 — 무료·수십 ms라 페이싱 대상이 아니고,
         // NER 장애가 버킷 토큰을 태우거나 LLM 재시도가 NER를 반복 호출하는 것을 막는다
         TranslationService.Prepared prep;
@@ -141,15 +145,15 @@ public class JobProcessor {
             return onFailure(job, e, deliveryCount); // NER_UNAVAILABLE → FAILED + 재전달 백오프
         }
         Callable<TranslationResponse> guarded = () -> {
-            rateLimiter.acquire(model); // 버킷이 비어 있으면 여기서 대기 — 이것이 워커의 페이싱이다
+            rateLimiter.acquire(bucket); // 버킷이 비어 있으면 여기서 대기 — 이것이 워커의 페이싱이다
             try {
                 TranslationResponse r = translationService.translate(prep);
-                rateLimiter.onSuccess(model);
+                rateLimiter.onSuccess(bucket);
                 return r;
             } catch (Exception e) {
                 if (classifier.classify(e) == ErrorClass.RATE_LIMITED) {
                     // 재시도 전에 rate를 먼저 내린다 — 같은 속도로 재시도하면 429만 더 맞는다
-                    rateLimiter.onRateLimited(model, RetryAfterHint.parse(e).orElse(null));
+                    rateLimiter.onRateLimited(bucket, RetryAfterHint.parse(e).orElse(null));
                 }
                 throw e;
             }
@@ -159,12 +163,13 @@ public class JobProcessor {
         try {
             TranslationResponse resp = call.call();
             ledger.record(jobId, resp.meta().model(),
-                    resp.meta().tokensIn(), resp.meta().tokensOut());
+                    resp.meta().tokensIn(), resp.meta().tokensOut(), tenant);
+            meters.counter("tenant.calls", "tenant", tenant).increment();
 
             // 품질 게이트 (§5.4): 확정 엔티티 반영 여부의 결정론 검사 — LLM 추가 호출 0회
             QualityGate.Verdict verdict = qualityGate.grade(resp);
             if (verdict.grade() == QualityGrade.REJECTED) {
-                TranslationResponse promoted = tryTierUp(jobId, prep, model, verdict);
+                TranslationResponse promoted = tryTierUp(jobId, prep, model, tenant, verdict);
                 if (promoted != null) {
                     resp = promoted;
                     verdict = qualityGate.grade(resp);
@@ -200,30 +205,32 @@ public class JobProcessor {
      * 죽이지 않는다 — 이미 가진 번역을 REJECTED 등급으로 반환하는 것이 낫다.
      */
     private TranslationResponse tryTierUp(UUID jobId, TranslationService.Prepared prep,
-                                          String primaryModel, QualityGate.Verdict verdict) {
+                                          String primaryModel, String tenant,
+                                          QualityGate.Verdict verdict) {
         if (!tierUpEnabled || tierUpModel == null || tierUpModel.equals(primaryModel)) {
             return null;
         }
+        String bucket = QueueKeys.rateScope(tenant, tierUpModel);
         log.info("job {} REJECTED (누락: {}) — {} 로 승격 재호출", jobId, verdict.missingNames(), tierUpModel);
         meters.counter("sjw.quality.tier_up").increment();
         try {
-            rateLimiter.acquire(tierUpModel);
+            rateLimiter.acquire(bucket);
             try {
                 TranslationResponse r = translationService.translate(
                         prep, translatorFactory.forModel(tierUpModel));
-                rateLimiter.onSuccess(tierUpModel);
-                ledger.record(jobId, r.meta().model(), r.meta().tokensIn(), r.meta().tokensOut());
+                rateLimiter.onSuccess(bucket);
+                ledger.record(jobId, r.meta().model(), r.meta().tokensIn(), r.meta().tokensOut(), tenant);
                 return r;
             } catch (Exception e) {
                 if (classifier.classify(e) == ErrorClass.RATE_LIMITED) {
-                    rateLimiter.onRateLimited(tierUpModel, RetryAfterHint.parse(e).orElse(null));
+                    rateLimiter.onRateLimited(bucket, RetryAfterHint.parse(e).orElse(null));
                 }
                 throw e;
             }
         } catch (Exception e) {
             // 파싱 실패도 호출은 발생 — 원장 기록 (과금 회계는 성공 여부와 무관)
             if (e instanceof LlmParseException pe) {
-                ledger.record(jobId, pe.model(), pe.tokensIn(), pe.tokensOut());
+                ledger.record(jobId, pe.model(), pe.tokensIn(), pe.tokensOut(), tenant);
             }
             log.warn("job {} 승격 호출 실패 [{}] — 1차 결과를 REJECTED로 유지: {}",
                     jobId, classifier.classify(e), brief(e));
@@ -239,7 +246,8 @@ public class JobProcessor {
         LlmParseException pe = e instanceof LlmParseException p ? p
                 : (e.getCause() instanceof LlmParseException p2 ? p2 : null);
         if (pe != null) {
-            ledger.record(job.id(), pe.model(), pe.tokensIn(), pe.tokensOut());
+            ledger.record(job.id(), pe.model(), pe.tokensIn(), pe.tokensOut(),
+                    job.tenantId() == null ? Tenant.DEFAULT_ID : job.tenantId());
         }
 
         if (c.deadImmediately()) {

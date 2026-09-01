@@ -32,6 +32,7 @@ public class TranslationJobRepository {
                 rs.getObject("tokens_in", Integer.class),
                 rs.getObject("tokens_out", Integer.class),
                 rs.getObject("batch_id", UUID.class),
+                rs.getString("tenant_id"),
                 rs.getString("error_class"),
                 rs.getObject("created_at", OffsetDateTime.class),
                 rs.getObject("completed_at", OffsetDateTime.class)
@@ -39,14 +40,14 @@ public class TranslationJobRepository {
     }
 
     public void insertPending(UUID id, String idempotencyKey, String sourceText, Integer docYear,
-                              String normalizedHash, UUID batchId) {
+                              String normalizedHash, UUID batchId, String tenantId) {
         jdbc.sql("""
                 INSERT INTO translation_job
-                  (id, idempotency_key, source_text, doc_year, normalized_hash, status, batch_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                  (id, idempotency_key, source_text, doc_year, normalized_hash, status, batch_id, tenant_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """)
                 .params(id, idempotencyKey, sourceText, docYear, normalizedHash,
-                        JobStatus.PENDING.name(), batchId)
+                        JobStatus.PENDING.name(), batchId, tenantId)
                 .update();
     }
 
