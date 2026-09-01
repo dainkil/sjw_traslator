@@ -23,6 +23,27 @@ server:
   port: 8081
 
 sjw:
+  llm:
+    # 모델 레지스트리 (M2.5) — api와 동일 블록. rate 버킷 키(모델별)·원장 단가의 단일 출처.
+    active-model: ${GEMINI_MODEL:gemini-3.1-flash-lite}
+    usd-krw: 1400                       # (추정) cost-model.md와 동일 파라미터
+    models:
+      - id: gemini-3.5-flash
+        provider: google-genai
+        tier: T1
+        rpd: 20                         # 실측 (docs/benchmarks.md, PerDayPerProjectPerModel)
+        unit-price-in-usd-per-mtok: 0.30   # counterfactual — 2.5 Flash 공시가 proxy (추정)
+        unit-price-out-usd-per-mtok: 2.50
+      - id: gemini-3.1-flash-lite
+        provider: google-genai
+        tier: T0
+        unit-price-in-usd-per-mtok: 0.10   # counterfactual — 2.5 Flash-Lite 공시가 proxy (추정)
+        unit-price-out-usd-per-mtok: 0.40
+      - id: gemma-4-26b-a4b-it
+        provider: google-genai
+        tier: T0
+        unit-price-in-usd-per-mtok: 0      # 유료 제공 없음 — counterfactual 0
+        unit-price-out-usd-per-mtok: 0
   # 적응형 rate control (ADR-017). 이 값들은 '운영 rate'가 아니라 탐색의 경계·속도다 —
   # 실제 RPM은 429 피드백으로 스스로 정해진다. 시작값이 틀린 것은 설계상 허용된다.
   rate:
