@@ -448,8 +448,8 @@ tenant                                   -- BYOK / 멀티테넌트 (D10)
 ### 8.3 Redis 키 설계
 
 ```
-cache:l1:{normalized_hash}          → 번역 결과 (원문 완전 일치)
-cache:l2:{kb_version}:{template_hash} → 번역 템플릿 (슬롯 치환형)
+cache:l1:{kb_version}:{prompt_version}:{normalized_hash} → 번역 결과+등급 (원문 완전 일치, ADR-009)
+cache:l2:{kb_version}:{prompt_version}:{template_hash}    → 번역 템플릿 (슬롯 치환형, ADR-009)
 job:status:{jobId}                  → 상태
 rate:bucket:{tenant}:{model}        → 적응형 토큰 버킷 상태 (테넌트×모델 격리, ADR-017/020)
 budget:daily:{tenant}:{yyyy-mm-dd}  → 테넌트 일일 소진량 (무료 티어에서는 호출 수)
