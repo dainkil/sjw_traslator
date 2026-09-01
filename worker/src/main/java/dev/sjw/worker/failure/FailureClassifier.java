@@ -1,5 +1,6 @@
 package dev.sjw.worker.failure;
 
+import dev.sjw.common.ner.NerUnavailableException;
 import dev.sjw.common.translate.LlmParseException;
 import java.util.Locale;
 import org.springframework.stereotype.Component;
@@ -14,6 +15,10 @@ public class FailureClassifier {
     public ErrorClass classify(Throwable e) {
         if (find(e, LlmParseException.class) != null) {
             return ErrorClass.PARSE_ERROR;
+        }
+        // 메시지 매칭보다 먼저 — NER 타임아웃이 "timeout" 문자열로 LLM TIMEOUT에 오귀속되는 것을 막는다
+        if (find(e, NerUnavailableException.class) != null) {
+            return ErrorClass.NER_UNAVAILABLE;
         }
         String msg = messages(e).toLowerCase(Locale.ROOT);
 

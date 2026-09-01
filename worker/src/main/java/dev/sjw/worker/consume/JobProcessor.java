@@ -93,9 +93,10 @@ public class JobProcessor {
                         return true; // provider 건강과 무관 (우리 쪽 페이싱)
                     }
                     ErrorClass c = classifier.classify(e);
-                    // 영구 오류(파싱·필터·quota)는 provider 건강과 무관 — 브레이커 통계에서 제외
+                    // 영구 오류(파싱·필터·quota)와 내부 인프라 장애(NER)는 provider 건강과 무관 — 브레이커 통계에서 제외
                     return c == ErrorClass.PARSE_ERROR || c == ErrorClass.CONTENT_FILTERED
-                            || c == ErrorClass.QUOTA_DAILY || c == ErrorClass.SPEND_CAP;
+                            || c == ErrorClass.QUOTA_DAILY || c == ErrorClass.SPEND_CAP
+                            || c == ErrorClass.NER_UNAVAILABLE;
                 })
                 .build());
     }
@@ -113,10 +114,18 @@ public class JobProcessor {
         jobs.tryMarkRunning(jobId);
 
         String model = translationService.model();
+        // 전처리(NER+링킹+조립)는 permit 밖 — 무료·수십 ms라 페이싱 대상이 아니고,
+        // NER 장애가 버킷 토큰을 태우거나 LLM 재시도가 NER를 반복 호출하는 것을 막는다
+        TranslationService.Prepared prep;
+        try {
+            prep = translationService.prepare(job.sourceText(), job.docYear());
+        } catch (Exception e) {
+            return onFailure(job, e, deliveryCount); // NER_UNAVAILABLE → FAILED + 재전달 백오프
+        }
         Callable<TranslationResponse> guarded = () -> {
             rateLimiter.acquire(model); // 버킷이 비어 있으면 여기서 대기 — 이것이 워커의 페이싱이다
             try {
-                TranslationResponse r = translationService.translate(job.sourceText(), job.docYear());
+                TranslationResponse r = translationService.translate(prep);
                 rateLimiter.onSuccess(model);
                 return r;
             } catch (Exception e) {

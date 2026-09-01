@@ -3,7 +3,7 @@ package dev.sjw.common.translate;
 import dev.sjw.common.kb.KnowledgeBase;
 import dev.sjw.common.kb.LinkResult;
 import dev.sjw.common.llm.Translator;
-import dev.sjw.common.ner.NerClient;
+import dev.sjw.common.ner.EntityRecognizer;
 import dev.sjw.common.ner.NerEntity;
 import dev.sjw.common.translate.TranslationDtos.EntityDto;
 import dev.sjw.common.translate.TranslationDtos.LlmOutput;
@@ -19,12 +19,12 @@ import org.springframework.stereotype.Service;
 @Service
 public class TranslationService {
 
-    private final NerClient nerClient;
+    private final EntityRecognizer nerClient;
     private final KnowledgeBase kb;
     private final PromptAssembler promptAssembler;
     private final Translator translator;
 
-    public TranslationService(NerClient nerClient, KnowledgeBase kb,
+    public TranslationService(EntityRecognizer nerClient, KnowledgeBase kb,
                               PromptAssembler promptAssembler, Translator translator) {
         this.nerClient = nerClient;
         this.kb = kb;
@@ -95,8 +95,15 @@ public class TranslationService {
     }
 
     public TranslationResponse translate(String text, Integer year) {
-        long start = System.nanoTime();
-        Prepared prep = prepare(text, year);
+        return translate(prepare(text, year));
+    }
+
+    /**
+     * 전처리 완료분으로 LLM 호출만 수행. 워커는 이 오버로드를 쓴다 —
+     * prepare(무료·수십 ms)를 rate permit 밖에서 끝내야 NER 장애가 버킷 토큰을 태우지 않고,
+     * 재시도가 LLM 호출만 반복한다.
+     */
+    public TranslationResponse translate(Prepared prep) {
         Map<String, Long> lat = new LinkedHashMap<>(prep.latencyMs());
         List<EntityDto> entityDtos = prep.entities();
         List<UncertainSpan> kbMisses = prep.kbMisses();
@@ -115,7 +122,7 @@ public class TranslationService {
             throw new LlmParseException(translator.modelId(),
                     reply.tokensIn(), reply.tokensOut(), parseError);
         }
-        lat.put("total", (System.nanoTime() - start) / 1_000_000);
+        lat.put("total", lat.values().stream().mapToLong(Long::longValue).sum());
 
         List<UncertainSpan> uncertain = new ArrayList<>(kbMisses);
         if (out != null && out.uncertainSpans() != null) {
