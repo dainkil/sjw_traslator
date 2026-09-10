@@ -11,7 +11,7 @@
 | M1 단건 동기 경로 | ✅ 완료 | `docs/benchmarks.md` — LLM이 p95의 99.7~99.9% 확정 |
 | M2 비동기 + 배치 엔진 | ✅ 완료 (2026-09-01) | 아래 §3 — 수용 기준 3종 증거 상태 포함 |
 | M2.5 교체 가능성 + 품질 게이트 + 배포 기반 | ✅ 완료 (2026-09-01) | §5.1 수용 기준 판정 — 포트 3종·품질 게이트·BYOK·compose 전 스택 |
-| M3 템플릿 슬롯 캐싱 | 예정 | |
+| M3 템플릿 슬롯 캐싱 | 진행 중 (S1·S2 완료, 2026-09-10) | S1 슬롯 도메인 로직 + ADR-009 / S2 L1 캐시 라이브 — 원장 1행 실증 |
 | M4 NER 비용 라우팅 | 예정 | |
 | M5 비용 SLI + 예산 서킷브레이커 | 예정 | |
 | M6 배포/CI/부하테스트 | 예정 | |
@@ -82,7 +82,40 @@ curl -s localhost:8080/api/v1/translations/<jobId> # → SUCCEEDED + 번역
 
 > **2026-09-01 계획 개정.** 계획 검토 결과 M3·M4가 둘 다 아직 없는 추상화(모델 레지스트리, 검증된 `kb_version`, 품질 게이트)에 의존한다는 점이 확인되어, **M2.5를 M3 앞에 삽입**했다. 개정 전문은 [PROJECT_PLAN.md](PROJECT_PLAN.md) §5.4 / §10 / §15.
 
-### 5.1 M2.5 완료 기록 (다음 작업은 M3 — 템플릿 슬롯 캐싱, 계획서 §10)
+### 5.1 M3 진행 (현재 재개 지점)
+
+계획서 §10의 M3가 정본. 5슬라이스로 쪼갰다.
+
+- **S1 완료 (2026-09-01, `01a0e0f`)** — `TemplateSlotter`(확정 PER만 슬롯화, 등장 위치 순 번호,
+  조사 보정 5쌍, 경계 검사) + `CacheKeys`/`CacheLevel` + **ADR-009**(무효화 A안: 버전을 캐시 키에
+  포함 → 무효화 코드 0줄, 적재 정책 = L1은 게이트 통과분만 / L2는 VERIFIED + 전체형 출현분만).
+- **S2 완료 (2026-09-10)** — L1 캐시 라이브. 워커·동기·SSE 경로 통합, `cache_hit_level` 기록,
+  `translation.cache.hit/miss` 계측, `deploy/demo-cache.sh`.
+  실측은 `docs/benchmarks.md` — **job 2건에 원장 1행**, 히트 지연 0~12ms vs 미스 1,665ms.
+
+  S2에서 **ADR-009를 개정**했다. 원결정의 키는 `kb_version`·`prompt_version`뿐이었는데, 품질을
+  결정하는 축은 넷(인물 사전·지시문·**NER 모델**·번역 LLM)이고 NER 모델에는 버전 개념이 아예
+  없었다. NER 재학습본으로 갈아끼워도 캐시가 옛 결과를 계속 내주면 **개선분이 캐시에 막혀
+  사라지고 등급으로도 안 드러난다.** 그래서:
+  - 키를 `{kb}:{prompt}:{ner}:{epoch}` 파이프라인 버전으로 확장 (`PipelineVersions`)
+  - NER 서버가 `/healthz`에 `model_version`(가중치 SHA-256 앞 8자리) 노출 → 자동 무효화
+  - 번역 LLM은 여전히 키에서 제외하고 **`CACHE_EPOCH` 수동 손잡이**로 전면 재구축
+  - `NER_MODE`/`KB_NAME`/`CACHE_EPOCH`를 compose passthrough로 노출 (교체 실증 수단)
+
+  결정 근거(사용자, 2026-09-10): 캐시는 **테넌트 간 전역 공유**하되 BYOK 결과는 적재 제외,
+  동기 경로도 게이트를 붙여 적재, 캐시 히트는 테넌트 일일 상한을 소모하지 않는다(예산 단위 =
+  LLM 호출 수).
+
+- **다음: S3 — L2(템플릿 슬롯) 캐시.** opt-in 기본 off, 재주입 결과는 `DEGRADED`,
+  구조 불일치(마커 누락·잔존)는 히트 취소 → 전체 파이프라인 fallback.
+- 이후: **S4** 인조 1년치(`A01-*`) 히트율 시뮬레이션 + 캐시 on/off 비용 비교표 /
+  **S5** L2 비열등 판정(chrF −2.0, 확정 인명 재현율 하락 0) 후 활성화 결정.
+
+**S2에서 발견한 별건 갭 (M5로 이월):** `/actuator/prometheus`가 404다 —
+`micrometer-registry-prometheus`가 없어 노출 설정만 있고 레지스트리가 없다. 카운터 자체는
+`/actuator/metrics`로 확인된다. Grafana 대시보드를 세우는 M5에서 붙인다.
+
+### 5.2 M2.5 완료 기록
 
 계획서 §10 M2.5가 정본이다. **진행 (2026-09-01): S1(Flyway + ADR 6건) · S2(모델 레지스트리 + Translator 포트, 3모델 설정 교체 실증) · S3(EntityRecognizer 포트 http/rule, 골든셋 A/B 수치 확보) · S4(KnowledgeSource 포트, 정조 KB 기동 실증, 체크섬 버전, ADR-018) · S5(품질 게이트: quality_grade + T1 승격 + 오탐률 3.9% 선측정 + score_db.py 기준선 chrF 41.52/인명 99.09%, ADR-019) · S6(BYOK/테넌트: X-Api-Key 해시 식별 + 일일 상한 429 + rate:bucket:{tenant}:{model} + X-Llm-Key 요청 단위 클라이언트·비저장 검증, ADR-020 — 단, BYOK는 동기/SSE만, 배치는 운영자 키) · S7(프롬프트 외부화: 템플릿·패턴 리소스 파일 + prompt_version 체크섬 파생, 외부화 전후 프롬프트 바이트 동일 확인 tokens_in 754 불변) · S8(Dockerfile 3종 — NER은 INT8 174MB 동봉, compose 전 스택 라이브 E2E, GitHub Actions CI 테스트→빌드, §9.1 메트릭 이름 정렬 + cost/tokens/latency/ner.unavailable 계측, ADR-022 배포 타겟 = Oracle Always Free 우선) 완료.**
 
@@ -114,7 +147,7 @@ curl -s localhost:8080/api/v1/translations/<jobId> # → SUCCEEDED + 번역
 | ~~품질 게이트 부재~~ | `QualityGate` | ✅ S5 해소 — quality_grade 판정 + REJECTED→T1 승격 + 오탐률 3.9% 선측정 + score_db.py 비열등 판정 |
 | ~~단가 미기록~~ | `CostLedgerRepository` | ✅ S2 해소 — 레지스트리 단가로 counterfactual 원화 기록 (행 단위) |
 
-### 5.2 미작성 ADR
+### 5.3 미작성 ADR
 
 **작성 완료 (2026-09-01, M2.5-S1):** 004(KB in-memory) / 007(Tool Calling 배제) / 008(ChatMemory 배제) / 012(Kafka·MSA·K8s 배제) / 021(단일 워커 — 처리량 실측 근거) / 023(Flyway).
 **남은 M2.5 산출물:** 022(배포 타겟) — 018(S4)·019(S5)·020(S6) 작성 완료. 009~011·013은 M3~M5에서.

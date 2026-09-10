@@ -1,6 +1,10 @@
 package dev.sjw.worker.consume;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.sjw.common.cache.CacheLevel;
+import dev.sjw.common.cache.CachedTranslation;
+import dev.sjw.common.cache.TranslationCache;
 import dev.sjw.common.job.BatchJobRepository;
 import dev.sjw.common.job.CostLedgerRepository;
 import dev.sjw.common.job.JobRow;
@@ -28,6 +32,7 @@ import io.github.resilience4j.retry.Retry;
 import io.github.resilience4j.retry.RetryConfig;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import org.slf4j.Logger;
@@ -65,6 +70,7 @@ public class JobProcessor {
     private final DlqPublisher dlq;
     private final AdaptiveRateLimiter rateLimiter;
     private final QualityGate qualityGate;
+    private final TranslationCache cache;
     private final TranslatorFactory translatorFactory;
     private final MeterRegistry meters;
     private final boolean tierUpEnabled;
@@ -76,7 +82,8 @@ public class JobProcessor {
                         BatchJobRepository batches, TranslationService translationService,
                         FailureClassifier classifier, DlqPublisher dlq,
                         AdaptiveRateLimiter rateLimiter, QualityGate qualityGate,
-                        TranslatorFactory translatorFactory, MeterRegistry meters,
+                        TranslationCache cache, TranslatorFactory translatorFactory,
+                        MeterRegistry meters,
                         @Value("${sjw.quality.tier-up-enabled:true}") boolean tierUpEnabled,
                         @Value("${sjw.quality.tier-up-model:gemini-3.5-flash}") String tierUpModel) {
         this.jobs = jobs;
@@ -87,6 +94,7 @@ public class JobProcessor {
         this.dlq = dlq;
         this.rateLimiter = rateLimiter;
         this.qualityGate = qualityGate;
+        this.cache = cache;
         this.translatorFactory = translatorFactory;
         this.meters = meters;
         this.tierUpEnabled = tierUpEnabled;
@@ -132,6 +140,18 @@ public class JobProcessor {
             return Outcome.ACK;
         }
         jobs.tryMarkRunning(jobId);
+
+        // L1 캐시 (ADR-009): 전처리보다 앞이다. 키가 파이프라인 버전 + 원문 해시만으로 만들어지므로
+        // 여기서 판정할 수 있고, 히트면 LLM뿐 아니라 NER 추론도 0회다.
+        long cacheStart = System.nanoTime();
+        Optional<CachedTranslation> cached = cache.lookupL1(job.sourceText());
+        if (cached.isPresent()) {
+            Optional<Outcome> served = serveFromCache(
+                    jobId, cached.get(), (System.nanoTime() - cacheStart) / 1_000_000);
+            if (served.isPresent()) {
+                return served.get();
+            }
+        }
 
         String model = translationService.model();
         String tenant = job.tenantId() == null ? Tenant.DEFAULT_ID : job.tenantId();
@@ -181,10 +201,13 @@ public class JobProcessor {
                 log.warn("job {} REJECTED (누락: {}) — 검수 큐 대상", jobId, verdict.missingNames());
             }
 
+            // 게이트 통과분만 적재 (ADR-009). 승격이 있었다면 승격 결과가 적재된다.
+            cache.storeL1(job.sourceText(), resp, verdict.grade());
+
             jobs.insertResult(jobId, resp.translatedText(),
                     JSON.writeValueAsString(resp.entities()),
                     JSON.writeValueAsString(resp.uncertainSpans()));
-            jobs.markSucceeded(jobId, resp.meta().model(), null /* cacheHit — M3 */,
+            jobs.markSucceeded(jobId, resp.meta().model(), null /* 캐시 미스 경로 */,
                     resp.meta().tokensIn(), resp.meta().tokensOut(), resp.meta().kbVersion(),
                     resp.meta().promptVersion(), verdict.grade().name());
             return Outcome.ACK;
@@ -197,6 +220,34 @@ public class JobProcessor {
         } catch (Exception e) {
             return onFailure(job, e, deliveryCount);
         }
+    }
+
+    /**
+     * L1 히트 처리. <b>cost_ledger에 행을 쓰지 않는다</b> — 원장의 계약이 "LLM 호출 1회 = 1행"이고
+     * M2의 "중복 호출 0건" 증명이 거기 걸려 있다. 절감량은 cache_hit_level 건수 × 원장 평균
+     * 단가로 따로 산출한다 (S4 비교표). rate permit도 얻지 않는다 — 태울 quota가 없다.
+     *
+     * <p>empty를 돌려주면 히트를 포기하고 전체 파이프라인으로 진행한다.
+     */
+    private Optional<Outcome> serveFromCache(UUID jobId, CachedTranslation hit, long lookupMs) {
+        TranslationResponse resp = cache.toResponse(hit, lookupMs);
+        try {
+            jobs.insertResult(jobId, resp.translatedText(),
+                    JSON.writeValueAsString(resp.entities()),
+                    JSON.writeValueAsString(resp.uncertainSpans()));
+        } catch (JsonProcessingException e) {
+            log.warn("job {} 캐시 히트 직렬화 실패 — 정상 경로로 진행: {}", jobId, e.getMessage());
+            return Optional.empty();
+        }
+        jobs.markSucceeded(jobId, resp.meta().model(), CacheLevel.L1_EXACT.name(),
+                null /* 토큰 미소비 */, null, resp.meta().kbVersion(),
+                resp.meta().promptVersion(), hit.qualityGrade());
+        // 등급 분포는 "서빙된 결과" 기준이어야 한다 — 히트도 집계한다
+        meters.counter("translation.quality.grade", "grade", hit.qualityGrade()).increment();
+        meters.timer("translation.latency", "stage", "cache")
+                .record(java.time.Duration.ofMillis(lookupMs));
+        log.info("job {} L1 캐시 히트 ({}ms, {}) — LLM 호출 0회", jobId, lookupMs, hit.producedModel());
+        return Optional.of(Outcome.ACK);
     }
 
     /** §9.1 계측 — 기능을 만든 마일스톤에서 그 기능의 메트릭을 함께 계측한다는 원칙의 이행. */

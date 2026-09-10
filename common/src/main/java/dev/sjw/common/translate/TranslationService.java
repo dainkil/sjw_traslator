@@ -146,7 +146,7 @@ public class TranslationService {
                 entityDtos,
                 uncertain,
                 new Meta(t.modelId(), kb.version(), promptAssembler.version(),
-                        reply.tokensIn(), reply.tokensOut(), lat)
+                        reply.tokensIn(), reply.tokensOut(), lat, null /* 캐시 미스 경로 */)
         );
     }
 

@@ -94,4 +94,29 @@
 **오프라인 기준선 (`eval/score_db.py`, 시스템 결과 n=70, gemini-3.1-flash-lite):**
 chrF **41.52**, 링크 확정 인명 재현율 **99.09%** (110건 중 109). 비열등 임계: chrF −2.0 이내, 인명 재현율 하락 0.
 
-## 캐시 히트율 (M3, 예정)
+## L1 캐시 (M3-S2, 2026-09-10)
+
+라이브 전 스택(compose 5컨테이너), 모델 `gemini-3.1-flash-lite`, 문장 `傳于李馨長曰知道`.
+
+| 항목 | 실측 |
+|---|---|
+| 미스 경로 지연 | 1,665ms (ner 0 / link 0 / prompt 74 / **llm 1,591**) |
+| L1 히트 지연 | **0~12ms** (초회 116ms — NER 모델 버전 1회 조회 포함) |
+| job 2건에 대한 `cost_ledger` 행 | **1건** — 두 번째 요청은 LLM·NER 호출 0회 |
+| 히트 시 `tokens_in/out` | NULL (쓰지 않은 토큰을 계상하지 않는다) |
+| 카운터 | worker `translation.cache.hit{level=L1}`=1, `.miss{level=L1}`=1 |
+
+재현: `deploy/demo-cache.sh` (LLM 1회 소모).
+
+**무효화 실증 (ADR-009 개정).** 파이프라인 버전이 키에 들어가는 것을 라이브로 확인했다.
+
+| 키 | 결과 |
+|---|---|
+| `cache:l1:injo-fffabc78:main-d5ac24e9:onnx-d66923a5:1:3366…` | ONNX NER로 적재된 원본 |
+| `NER_MODE=rule`로 재기동 후 같은 문장 | **미스** (llm 1,591ms 재실행), `…:rule-v1:1:3366…`로 별도 적재 |
+| 다시 ONNX로 되돌린 뒤 같은 문장 | **히트** — 무효화는 파괴가 아니라 키 공간 분리다 |
+
+NER 모델 버전 = `model.onnx` + `config.json`의 SHA-256 앞 8자리. 현재 INT8 가중치: `onnx-d66923a5`
+— 재학습본과의 비교 기준선이다.
+
+## 캐시 히트율 (M3-S4, 예정)

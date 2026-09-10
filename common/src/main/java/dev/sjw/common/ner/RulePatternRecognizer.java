@@ -2,6 +2,7 @@ package dev.sjw.common.ner;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -34,6 +35,12 @@ public class RulePatternRecognizer implements EntityRecognizer {
     @Override
     public String id() {
         return "rule-v1";
+    }
+
+    /** 규칙은 코드다 — 빌드와 함께 버전이 매겨지므로 상수. 규칙을 고치면 여기를 올린다. */
+    @Override
+    public Optional<String> version() {
+        return Optional.of("rule-v1");
     }
 
     @Override

@@ -30,7 +30,9 @@ public final class TranslationDtos {
     public record Meta(
             String model, String kbVersion, String promptVersion,
             Integer tokensIn, Integer tokensOut,
-            Map<String, Long> latencyMs
+            Map<String, Long> latencyMs,
+            /** 캐시 히트 층위 (§8.1) — L1_EXACT / L2_TEMPLATE, 미스면 null. */
+            String cacheHit
     ) {}
 
     public record TranslationResponse(

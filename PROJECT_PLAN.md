@@ -448,8 +448,11 @@ tenant                                   -- BYOK / 멀티테넌트 (D10)
 ### 8.3 Redis 키 설계
 
 ```
-cache:l1:{kb_version}:{prompt_version}:{normalized_hash} → 번역 결과+등급 (원문 완전 일치, ADR-009)
-cache:l2:{kb_version}:{prompt_version}:{template_hash}    → 번역 템플릿 (슬롯 치환형, ADR-009)
+cache:l1:{pipeline_version}:{normalized_hash}  → 번역 결과+등급 (원문 완전 일치, ADR-009)
+cache:l2:{pipeline_version}:{template_hash}    → 번역 템플릿 (슬롯 치환형, ADR-009)
+  pipeline_version = {kb_version}:{prompt_version}:{ner_version}:{epoch}
+    앞의 셋은 체크섬 파생 — 인물 사전·프롬프트·NER 모델이 바뀌면 자동 무효화 (무효화 코드 0줄)
+    epoch는 수동 손잡이 — 번역 LLM 교체 시 전면 재구축용 (ADR-009 개정, M3-S2)
 job:status:{jobId}                  → 상태
 rate:bucket:{tenant}:{model}        → 적응형 토큰 버킷 상태 (테넌트×모델 격리, ADR-017/020)
 budget:daily:{tenant}:{yyyy-mm-dd}  → 테넌트 일일 소진량 (무료 티어에서는 호출 수)
@@ -468,6 +471,7 @@ stream:translation:dlq              → DLQ
 | `translation.latency` (tier별, 단계별) | histogram | 지연 예산 검증 (§2.1) |
 | `translation.cost.krw` | counter | 비용 SLI |
 | `translation.cache.hit` (L1/L2 라벨) | counter | 캐싱 효과 증명 |
+| `translation.cache.miss` (L1/L2 라벨) | counter | 히트율의 분모 — 히트 수만으로는 비율이 안 나온다 (M3-S2 추가) |
 | `translation.tier.distribution` | counter | 라우팅 효과 증명 |
 | `llm.tokens` (in/out) | counter | Spring AI Micrometer 연동 |
 | `llm.rate_limit.429` | counter | 적응형 rate control 입력 |

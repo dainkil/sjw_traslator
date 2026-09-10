@@ -29,6 +29,8 @@ public class TranslationJobRepository {
                 rs.getString("normalized_hash"),
                 JobStatus.valueOf(rs.getString("status")),
                 rs.getString("model_used"),
+                rs.getString("cache_hit_level"),
+                rs.getString("quality_grade"),
                 rs.getObject("tokens_in", Integer.class),
                 rs.getObject("tokens_out", Integer.class),
                 rs.getObject("batch_id", UUID.class),

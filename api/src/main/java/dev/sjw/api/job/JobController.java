@@ -43,7 +43,8 @@ public class JobController {
     public record JobAccepted(UUID jobId, String status) {}
 
     public record JobView(UUID jobId, String status, String translatedText,
-                          String model, Integer tokensIn, Integer tokensOut,
+                          String model, String cacheHitLevel, String qualityGrade,
+                          Integer tokensIn, Integer tokensOut,
                           String errorClass) {}
 
     @PostMapping
@@ -78,7 +79,8 @@ public class JobController {
                         j.id(), j.status().name(),
                         j.status() == JobStatus.SUCCEEDED
                                 ? jobs.findResultJson(j.id()).orElse(null) : null,
-                        j.modelUsed(), j.tokensIn(), j.tokensOut(), j.errorClass())))
+                        j.modelUsed(), j.cacheHitLevel(), j.qualityGrade(),
+                        j.tokensIn(), j.tokensOut(), j.errorClass())))
                 .orElse(ResponseEntity.notFound().build());
     }
 

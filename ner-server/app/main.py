@@ -27,7 +27,9 @@ class NerRequest(BaseModel):
 
 @app.get("/healthz")
 def healthz():
-    return {"status": "ok", "model_dir": str(MODEL_DIR)}
+    # model_version은 가중치 파생 체크섬 — 클라이언트(M3 캐시)가 이 값을 캐시 키에 넣어
+    # 재학습본 교체 시 옛 결과가 계속 서빙되는 것을 막는다.
+    return {"status": "ok", "model_dir": str(MODEL_DIR), "model_version": model.version}
 
 
 @app.post("/v1/ner")

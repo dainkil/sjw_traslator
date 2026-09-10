@@ -12,6 +12,8 @@ public record JobRow(
         String normalizedHash,
         JobStatus status,
         String modelUsed,
+        String cacheHitLevel,
+        String qualityGrade,
         Integer tokensIn,
         Integer tokensOut,
         UUID batchId,

@@ -45,6 +45,15 @@ sjw:
         tier: T0
         unit-price-in-usd-per-mtok: 0      # 유료 제공 없음 — counterfactual 0
         unit-price-out-usd-per-mtok: 0
+  cache:
+    # M3 L1 캐시 (ADR-009). 키에는 kb_version·prompt_version·ner_version이 들어가므로
+    # 인물 사전 교체·프롬프트 개정·NER 재학습은 저절로 무효화된다 (체크섬 파생).
+    # epoch는 그 자동화가 닿지 않는 축, 곧 번역 LLM 교체용 수동 손잡이다 — 모델을 갈아끼우고
+    # 캐시를 전면 재구축하려면 이 값을 올린다.
+    epoch: ${CACHE_EPOCH:1}
+    l1:
+      enabled: ${CACHE_L1_ENABLED:true}
+      ttl-days: 30      # 정확성 장치가 아니라 메모리 위생 — 옛 버전 고아 엔트리 회수용
   ner:
     url: ${NER_URL:http://localhost:8100}
     mode: ${NER_MODE:http}   # http(ONNX 서버, 운영) | rule(규칙 축소판 — degrade/A/B)

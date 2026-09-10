@@ -24,11 +24,16 @@ dependencies {
     api 'org.springframework:spring-context'
     api 'org.springframework:spring-jdbc'
     api 'org.springframework.ai:spring-ai-starter-model-google-genai'
+    // 캐시(M3)가 common에 있어 Redis·계측 타입이 컴파일 클래스패스에 필요하다.
+    // 런타임 구성(연결 팩토리·레지스트리)은 api/worker의 starter가 그대로 제공한다.
+    api 'org.springframework.data:spring-data-redis'
+    api 'io.micrometer:micrometer-core'
     api 'com.fasterxml.jackson.core:jackson-databind'
     api 'jakarta.validation:jakarta.validation-api'
     api 'org.slf4j:slf4j-api'
 
     testImplementation 'org.junit.jupiter:junit-jupiter'
+    testImplementation 'org.springframework.boot:spring-boot-starter-data-redis'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
