@@ -265,16 +265,23 @@ def ner_all(sentences, url, cache_path, workers):
 
 # ── 시뮬레이션 ───────────────────────────────────────────────────────────
 
-def replay(items, l1_on, l2_on, grade_key="grade"):
-    """생산 코드 순서대로 재생: L1 조회 → L2 조회 → 미스면 LLM 1회 + 적재."""
-    l1_store, l2_store = set(), set()
+def replay(items, l1_on, l2_on, grade_key="grade", pairs_out=None):
+    """생산 코드 순서대로 재생: L1 조회 → L2 조회 → 미스면 LLM 1회 + 적재.
+
+    pairs_out가 주어지면 L2 히트마다 (틀을 적재한 문장 인덱스, 히트한 문장 인덱스)를 append한다 —
+    S5 비열등 판정의 표본 풀이다.
+    """
+    l1_store = set()
+    l2_store = {}          # template_hash → 그 틀을 적재한 item 인덱스
     stat = collections.Counter()
-    for it in items:
+    for idx, it in enumerate(items):
         if l1_on and it["l1_key"] in l1_store:
             stat["hit_l1"] += 1
             continue
         if l2_on and it["template_hash"] and it["template_hash"] in l2_store:
             stat["hit_l2"] += 1
+            if pairs_out is not None:
+                pairs_out.append((l2_store[it["template_hash"]], idx))
             continue
         stat["llm_calls"] += 1
         g = it[grade_key]
@@ -282,7 +289,7 @@ def replay(items, l1_on, l2_on, grade_key="grade"):
         if l1_on and g != "REJECTED":
             l1_store.add(it["l1_key"])
         if l2_on and g == "VERIFIED" and it["translation_template"]:
-            l2_store.add(it["template_hash"])
+            l2_store.setdefault(it["template_hash"], idx)
     return stat
 
 
@@ -299,6 +306,8 @@ def main():
     ap.add_argument("--ner-url", default=os.environ.get("NER_URL", "http://localhost:8100"))
     ap.add_argument("--ner-cache", default=None)
     ap.add_argument("--workers", type=int, default=8)
+    ap.add_argument("--dump-l2-pairs", default=None,
+                    help="L2 히트 쌍(틀 적재 문장, 히트 문장)을 JSON으로 저장 — S5 표본 풀")
     ap.add_argument("--self-check", action="store_true",
                     help="생산 DB의 job 행과 해시를 대조해 이식 충실도를 검증한다")
     args = ap.parse_args()
@@ -462,6 +471,32 @@ def main():
     for name, s in rows.items():
         krw = s["llm_calls"] * (TOK_IN * P_IN + TOK_OUT * P_OUT) / 1e6 * KRW
         print(f"{name:<14}{s['llm_calls']:>10,}{krw:>12,.0f}{krw / n:>12.2f}")
+
+    if args.dump_l2_pairs:
+        pairs = []
+        replay(items, True, True, "grade_aligned", pairs_out=pairs)
+        out = []
+        for first_i, hit_i in pairs:
+            # 두 문장 모두 정렬이 정상이어야 한다 — reference를 정답으로 쓰는 chrF 판정의 전제
+            if first_i in misaligned or hit_i in misaligned:
+                continue
+            out.append({
+                "first": {"id": items_raw[first_i]["id"],
+                          "original": items_raw[first_i]["original"],
+                          "reference": items_raw[first_i]["translation"]},
+                "hit": {"id": items_raw[hit_i]["id"],
+                        "original": items_raw[hit_i]["original"],
+                        "reference": items_raw[hit_i]["translation"]},
+                "template_hash": items[hit_i]["template_hash"],
+                "slots": len([e for e in items[hit_i]["entities"] if e.get("kb_id")]),
+            })
+        Path(args.dump_l2_pairs).write_text(
+            json.dumps({"pairs": out, "total_hits": len(pairs),
+                        "dropped_misaligned": len(pairs) - len(out)},
+                       ensure_ascii=False, indent=1))
+        print(f"\n── L2 히트 쌍 덤프 ──")
+        print(f"  히트 {len(pairs)}건 중 정렬 정상 {len(out)}건 저장 → {args.dump_l2_pairs}")
+        print(f"  (정렬 결함으로 제외 {len(pairs) - len(out)}건 — reference를 정답으로 쓸 수 없다)")
 
     if args.self_check:
         self_check(items_raw, inv, ids, ner_cache)

@@ -1,0 +1,49 @@
+{
+  "date": "2026-09-11",
+  "pipeline_version": "injo-fffabc78:main-d5ac24e9:onnx-d66923a5:1",
+  "n_per_round": 60,
+  "rounds": 3,
+  "pool_size": 1220,
+  "chrf_delta_median": 0.04,
+  "name_recall_delta_median": 0.0,
+  "thresholds": {
+    "chrf": -2.0,
+    "name_recall": -0.0
+  },
+  "verdict": "통과",
+  "per_round": [
+    {
+      "n": 60,
+      "n_confirmed": 81,
+      "chrf_l2": 36.55584286145956,
+      "chrf_base": 38.024629400321174,
+      "recall_l2": 1.0,
+      "recall_base": 1.0,
+      "dropped": {
+        "L2 미개입(적재 불성립)": 3
+      }
+    },
+    {
+      "n": 47,
+      "n_confirmed": 59,
+      "chrf_l2": 42.52265443333265,
+      "chrf_base": 41.8237140478202,
+      "recall_l2": 1.0,
+      "recall_base": 1.0,
+      "dropped": {
+        "HTTP 500": 28
+      }
+    },
+    {
+      "n": 60,
+      "n_confirmed": 74,
+      "chrf_l2": 38.18071268541786,
+      "chrf_base": 38.13806621987088,
+      "recall_l2": 1.0,
+      "recall_base": 1.0,
+      "dropped": {
+        "L2 미개입(적재 불성립)": 2
+      }
+    }
+  ]
+}

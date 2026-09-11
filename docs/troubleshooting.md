@@ -61,3 +61,30 @@ monthly spending cap. Please go to AI Studio at https://ai.studio/spend ...
 **교훈.** 런타임 품질 게이트가 의도 밖으로 코퍼스 정합성 검사기로 동작했다. "확정된 인물이
 번역문에 반영됐는가"는 번역 품질뿐 아니라 **짝이 맞는가**도 검사한다. 새 코퍼스를 들일 때
 게이트를 한 번 통과시켜 보는 것이 값싼 검수다.
+
+## 6. 동기 경로는 429를 HTTP 500으로 내보낸다 (2026-09-11, M3-S5)
+
+`/api/v1/translations/sync`와 `/stream`은 `Translator`를 직접 호출한다. 워커가 갖춘 방어가 하나도 없다:
+
+| 장치 | 워커 | 동기 경로 |
+|---|---|---|
+| 적응형 rate limiter (ADR-017) | ✅ `AdaptiveRateLimiter` | ❌ |
+| 재시도 + 서킷브레이커 (Resilience4j) | ✅ | ❌ |
+| 실패 분류 9종 (`FailureClassifier`) | ✅ | ❌ |
+| 비용 원장 기록 | ✅ | ❌ (원장은 `job_id NOT NULL` — job이 없는 요청은 남길 수 없다) |
+
+결과: provider quota 초과(429)가 `RuntimeException: Failed to generate content`로 감싸여
+**HTTP 500**으로 나간다. 클라이언트는 "서버 장애"와 "quota 소진"을 구별할 수 없고, 백오프 근거도 없다.
+
+M3-S5 판정 중 429 42건이 전부 이 경로로 500이 됐다. 측정 도구(`eval/score_l2.py`)가 서버가 할 일을
+대신 지고 있다 — 호출 간 페이싱 4.5s + 429 본문 문자열 판별 + 백오프 재시도. **본문 문자열로
+판별해야 한다는 것 자체가 갭의 증거다.**
+
+**처리 방향 (M5/M6):** `FailureClassifier`를 common으로 올리고 동기 경로에 `@ExceptionHandler`를 붙여
+`QUOTA_DAILY`/`RATE_LIMITED` → **HTTP 429 + `Retry-After`**, `NER_UNAVAILABLE` → 503으로 매핑한다.
+rate limiter까지 동기 경로에 물릴지는 별건 판단이다 — 동기 경로는 사람이 기다리는 경로라
+permit 대기(최대 120s)가 오히려 나쁜 UX일 수 있다.
+
+**곁가지: 비용 원장이 job 단위다.** `cost_ledger.job_id`가 `NOT NULL`이라 동기 경로 호출은 원장에
+남지 않는다. 예산 계상은 테넌트 일일 카운터(Redis `budget:daily:*`)가 담당하므로 **예산은 새지 않지만,
+M5의 비용 SLI는 두 출처를 합산해야 한다** (원장만 보면 동기 경로 호출이 보이지 않는다).
