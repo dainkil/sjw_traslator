@@ -22,6 +22,9 @@ ner-server/models/
 # 대용량 원천 데이터 (재생성 방법은 kb/README.md 참조)
 malmoi/
 
+# 시뮬레이션 파생물 (NER 추론 캐시 — eval/simulate_cache.py가 재생성, 15MB)
+eval/.ner_cache_*.json
+
 # IDE
 .idea/
 .vscode/
