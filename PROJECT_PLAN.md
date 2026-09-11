@@ -472,6 +472,7 @@ stream:translation:dlq              → DLQ
 | `translation.cost.krw` | counter | 비용 SLI |
 | `translation.cache.hit` (L1/L2 라벨) | counter | 캐싱 효과 증명 |
 | `translation.cache.miss` (L1/L2 라벨) | counter | 히트율의 분모 — 히트 수만으로는 비율이 안 나온다 (M3-S2 추가) |
+| `translation.cache.reinject.abort` (reason 라벨) | counter | L2 엔트리는 있었는데 서빙하지 못한 경우의 사유별 시계열 — 재주입 실패가 탐지되어 fallback했다는 증거 (M3-S3 추가) |
 | `translation.tier.distribution` | counter | 라우팅 효과 증명 |
 | `llm.tokens` (in/out) | counter | Spring AI Micrometer 연동 |
 | `llm.rate_limit.429` | counter | 적응형 rate control 입력 |

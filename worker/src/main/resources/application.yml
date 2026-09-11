@@ -69,6 +69,13 @@ sjw:
     l1:
       enabled: ${CACHE_L1_ENABLED:true}
       ttl-days: 30      # 정확성 장치가 아니라 메모리 위생 — 옛 버전 고아 엔트리 회수용
+    l2:
+      # 템플릿 슬롯 캐시 (M3-S3). **기본 off, 명시 opt-in** — 품질을 깎아 비용을 버는 기능이므로
+      # 기본값이 되어선 안 된다(계획서 §10 M3). §5.4 비열등 임계(chrF −2.0, 확정 인명 재현율
+      # 하락 0)를 M3-S5에서 통과해야 켠다. 히트 결과의 등급은 항상 DEGRADED(ADR-009).
+      # 꺼져 있어도 job.template_hash는 기록된다 — S4 히트율 시뮬레이션의 입력이다.
+      enabled: ${CACHE_L2_ENABLED:false}
+      ttl-days: 30
   ner:
     url: ${NER_URL:http://localhost:8100}
     mode: ${NER_MODE:http}   # http(ONNX 서버, 운영) | rule(규칙 축소판 — degrade/A/B)

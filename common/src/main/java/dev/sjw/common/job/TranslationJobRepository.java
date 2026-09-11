@@ -87,6 +87,17 @@ public class TranslationJobRepository {
                 .update();
     }
 
+    /**
+     * L2 슬롯화의 template_hash 기록 (§8.2 컬럼). <b>L2 on/off와 무관하게</b> 쓴다 —
+     * S4의 히트율 시뮬레이션은 "L2를 껐던 기간의 job들이 서로 틀을 공유했는가"를 사후에
+     * 계산해야 하고, 그 입력이 이 컬럼이다. 실패한 job에도 남도록 LLM 호출 전에 기록한다.
+     */
+    public void updateTemplateHash(UUID id, String templateHash) {
+        jdbc.sql("UPDATE translation_job SET template_hash = ? WHERE id = ?")
+                .params(templateHash, id)
+                .update();
+    }
+
     public void markFailed(UUID id, JobStatus status, String errorClass) {
         jdbc.sql("UPDATE translation_job SET status = ?, error_class = ?, completed_at = now() WHERE id = ?")
                 .params(status.name(), errorClass, id)

@@ -164,6 +164,24 @@ public class JobProcessor {
         } catch (Exception e) {
             return onFailure(job, e, deliveryCount); // NER_UNAVAILABLE → FAILED + 재전달 백오프
         }
+
+        // L2 캐시 (ADR-009): 전처리 뒤·LLM 앞이다. 슬롯화에 링크 확정 PER이 필요해 L1과 달리
+        // 여기서만 판정할 수 있다 — 히트해도 NER 추론은 이미 일어났고 LLM 호출만 0회가 된다.
+        long l2Start = System.nanoTime();
+        Optional<TranslationCache.L2Lookup> l2 = cache.lookupL2(job.sourceText(), prep.entities());
+        if (l2.isPresent()) {
+            // 해시는 히트 여부·L2 on/off와 무관하게 남긴다 (S4 히트율 시뮬레이션의 입력).
+            // LLM 호출 전에 쓰므로 실패한 job에도 남는다.
+            jobs.updateTemplateHash(jobId, l2.get().templateHash());
+            if (l2.get().hit()) {
+                Optional<Outcome> served = serveFromL2(
+                        jobId, l2.get(), prep, (System.nanoTime() - l2Start) / 1_000_000);
+                if (served.isPresent()) {
+                    return served.get();
+                }
+            }
+        }
+
         Callable<TranslationResponse> guarded = () -> {
             rateLimiter.acquire(bucket); // 버킷이 비어 있으면 여기서 대기 — 이것이 워커의 페이싱이다
             try {
@@ -203,6 +221,8 @@ public class JobProcessor {
 
             // 게이트 통과분만 적재 (ADR-009). 승격이 있었다면 승격 결과가 적재된다.
             cache.storeL1(job.sourceText(), resp, verdict.grade());
+            // L2는 VERIFIED + 모든 확정 인명의 전체형 출현분만 (보수적 적재)
+            cache.storeL2(job.sourceText(), resp.entities(), resp, verdict.grade());
 
             jobs.insertResult(jobId, resp.translatedText(),
                     JSON.writeValueAsString(resp.entities()),
@@ -250,6 +270,38 @@ public class JobProcessor {
         return Optional.of(Outcome.ACK);
     }
 
+    /**
+     * L2 히트 처리. L1과 같이 <b>cost_ledger에 행을 쓰지 않고 rate permit도 얻지 않는다</b> —
+     * LLM 호출이 0회이므로. 다만 등급은 항상 <b>DEGRADED</b>다 (ADR-009): 이 문장은 LLM이 생성한
+     * 것이 아니라 다른 문장의 번역 틀에 인명을 꽂아 만든 것이라, 비열등 판정(S5)이 끝나기 전에는
+     * VERIFIED와 같은 칸에 둘 수 없다. 캐시 계층이 이미 게이트로 재주입 결과를 검사했다.
+     *
+     * <p>empty를 돌려주면 히트를 포기하고 전체 파이프라인으로 진행한다.
+     */
+    private Optional<Outcome> serveFromL2(UUID jobId, TranslationCache.L2Lookup hit,
+                                          TranslationService.Prepared prep, long lookupMs) {
+        TranslationResponse resp = cache.toResponseL2(
+                hit, prep.entities(), prep.kbMisses(), prep.latencyMs(), lookupMs);
+        try {
+            jobs.insertResult(jobId, resp.translatedText(),
+                    JSON.writeValueAsString(resp.entities()),
+                    JSON.writeValueAsString(resp.uncertainSpans()));
+        } catch (JsonProcessingException e) {
+            log.warn("job {} L2 히트 직렬화 실패 — 정상 경로로 진행: {}", jobId, e.getMessage());
+            return Optional.empty();
+        }
+        jobs.markSucceeded(jobId, resp.meta().model(), CacheLevel.L2_TEMPLATE.name(),
+                null /* 토큰 미소비 */, null, resp.meta().kbVersion(),
+                resp.meta().promptVersion(), QualityGrade.DEGRADED.name());
+        meters.counter("translation.quality.grade", "grade", QualityGrade.DEGRADED.name()).increment();
+        // L1과 달리 L2 히트는 NER·링킹·조립이 실제로 일어났다 — 단계별로 남겨야 지연 예산(§2.1)
+        // 검증에서 "캐시 히트인데 왜 수십 ms인가"가 설명된다
+        recordLatency(resp.meta().latencyMs());
+        log.info("job {} L2 캐시 히트 ({}ms, 틀 생산 모델 {}) — LLM 호출 0회, 등급 DEGRADED",
+                jobId, lookupMs, hit.producedModel());
+        return Optional.of(Outcome.ACK);
+    }
+
     /** §9.1 계측 — 기능을 만든 마일스톤에서 그 기능의 메트릭을 함께 계측한다는 원칙의 이행. */
     private void recordCallMetrics(TranslationResponse resp, dev.sjw.common.llm.ModelRegistry.Cost cost,
                                    String tenant) {
@@ -264,10 +316,14 @@ public class JobProcessor {
         if (resp.meta().tokensOut() != null) {
             meters.counter("llm.tokens", "direction", "out").increment(resp.meta().tokensOut());
         }
-        if (resp.meta().latencyMs() != null) {
-            resp.meta().latencyMs().forEach((stage, ms) -> meters
+        recordLatency(resp.meta().latencyMs());
+    }
+
+    private void recordLatency(java.util.Map<String, Long> stages) {
+        if (stages != null) {
+            stages.forEach((stage, ms) -> meters
                     .timer("translation.latency", "stage", stage)
-                    .record(java.time.Duration.ofMillis(ms)));
+                    .record(Duration.ofMillis(ms)));
         }
     }
 

@@ -54,6 +54,8 @@ public class TranslationController {
      *
      * <p>캐시 히트는 <b>테넌트 일일 상한을 소모하지 않는다</b> — 무료 티어의 예산 단위는 원화가
      * 아니라 LLM 호출 수인데(§8.2), 히트는 호출을 0회 만든다. 그래서 조회가 charge보다 앞이다.
+     * L2는 전처리(NER·링킹) 뒤에만 판정할 수 있으므로 <b>charge를 LLM 호출 직전까지 내렸다</b>
+     * (M3-S3). 상한을 이미 넘긴 테넌트는 그 앞의 {@code ensureWithinCap}이 돌려보낸다.
      */
     @PostMapping("/sync")
     public TranslationResponse translateSync(
@@ -67,9 +69,20 @@ public class TranslationController {
             return cache.toResponse(hit.get(), (System.nanoTime() - start) / 1_000_000);
         }
 
+        tenantGuard.ensureWithinCap(tenant);   // 과금은 LLM 직전 — 문 앞에서만 막는다
+        var prep = service.prepare(req.text(), req.year());
+
+        // L2는 전처리 뒤에만 판정할 수 있다 (슬롯화에 링크 확정 PER이 필요하다).
+        long l2Start = System.nanoTime();
+        var l2 = cache.lookupL2(req.text(), prep.entities());
+        if (l2.isPresent() && l2.get().hit()) {
+            return cache.toResponseL2(l2.get(), prep.entities(), prep.kbMisses(),
+                    prep.latencyMs(), (System.nanoTime() - l2Start) / 1_000_000);
+        }
+
+        // 예산 단위는 LLM 호출 수다 (§8.2) — 과금은 실제로 호출하는 자리에서 한다.
         tenantGuard.charge(tenant, 1);
         Translator byok = pickTranslator(llmKey);
-        var prep = service.prepare(req.text(), req.year());
         TranslationResponse resp = byok == null
                 ? service.translate(prep)
                 : service.translate(prep, byok);
@@ -80,6 +93,7 @@ public class TranslationController {
             // BYOK 결과는 공용 캐시에 적재하지 않는다 — 요청자가 자기 키로 산 번역을
             // 다른 테넌트가 공짜로 받아가는 모양이 된다. 조회는 위에서 이미 허용했다.
             cache.storeL1(req.text(), resp, verdict.grade());
+            cache.storeL2(req.text(), resp.entities(), resp, verdict.grade());
         }
         return resp;
     }
@@ -119,8 +133,7 @@ public class TranslationController {
             return emitter;
         }
 
-        tenantGuard.charge(tenant, 1);
-        Translator byok = pickTranslator(llmKey);
+        tenantGuard.ensureWithinCap(tenant);
         var prep = service.prepare(req.text(), req.year());
         try {
             emitter.send(org.springframework.web.servlet.mvc.method.annotation.SseEmitter.event()
@@ -129,6 +142,27 @@ public class TranslationController {
             emitter.completeWithError(e);
             return emitter;
         }
+
+        // L2 히트는 스트리밍할 토큰이 없다 — 이미 완성된 문장이므로 token 1회로 내보낸다.
+        long l2Start = System.nanoTime();
+        var l2 = cache.lookupL2(req.text(), prep.entities());
+        if (l2.isPresent() && l2.get().hit()) {
+            try {
+                emitter.send(org.springframework.web.servlet.mvc.method.annotation.SseEmitter.event()
+                        .name("token").data(l2.get().translatedText()));
+                emitter.send(org.springframework.web.servlet.mvc.method.annotation.SseEmitter.event()
+                        .name("done").data(java.util.Map.of(
+                                "totalMs", (System.nanoTime() - start) / 1_000_000,
+                                "cacheHit", CacheLevel.L2_TEMPLATE.name())));
+                emitter.complete();
+            } catch (java.io.IOException e) {
+                emitter.completeWithError(e);
+            }
+            return emitter;
+        }
+
+        tenantGuard.charge(tenant, 1);
+        Translator byok = pickTranslator(llmKey);
         var flux = byok == null ? service.translateStream(prep) : service.translateStream(prep, byok);
         flux.subscribe(
                 chunk -> {

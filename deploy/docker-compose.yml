@@ -61,6 +61,7 @@ services:
       KB_NAME: ${KB_NAME:-injo}
       CACHE_EPOCH: ${CACHE_EPOCH:-1}
       CACHE_L1_ENABLED: ${CACHE_L1_ENABLED:-true}
+      CACHE_L2_ENABLED: ${CACHE_L2_ENABLED:-false}   # M3-S3 템플릿 슬롯 캐시 — opt-in
     ports:
       - "8080:8080"
     depends_on:
@@ -94,6 +95,7 @@ services:
       KB_NAME: ${KB_NAME:-injo}
       CACHE_EPOCH: ${CACHE_EPOCH:-1}
       CACHE_L1_ENABLED: ${CACHE_L1_ENABLED:-true}
+      CACHE_L2_ENABLED: ${CACHE_L2_ENABLED:-false}   # M3-S3 템플릿 슬롯 캐시 — opt-in
     ports:
       - "8081:8081"
     depends_on:
