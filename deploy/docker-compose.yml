@@ -57,6 +57,7 @@ services:
       # 교체 축 passthrough — 이것들이 캐시 키를 가른다 (ADR-009). 셸 환경변수로 덮어쓴 뒤
       # 재기동하면 무효화가 도는 것을 눈으로 확인할 수 있다:
       #   NER_MODE=rule docker compose -f deploy/docker-compose.yml up -d api worker
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.1-flash-lite}   # 활성 모델 — fake-flash-lite면 가짜 provider (quota 0)
       NER_MODE: ${NER_MODE:-http}
       KB_NAME: ${KB_NAME:-injo}
       CACHE_EPOCH: ${CACHE_EPOCH:-1}
@@ -67,6 +68,13 @@ services:
       #   SJW_EVAL_CORPUS=/eval/eval60_stratified.json PROMPT_TEMPLATE=file:/eval/prompts/v1-no-persona.st
       PROMPT_TEMPLATE: ${PROMPT_TEMPLATE:-classpath:prompts/translate-main.st}
       SJW_EVAL_CORPUS: ${SJW_EVAL_CORPUS:-/app/eval/eval300_1925.json}
+      # 가짜 provider (GEMINI_MODEL=fake-flash-lite 일 때만 의미) — 429·503·REJECTED 유발 손잡이
+      FAKE_RPM: ${FAKE_RPM:-}
+      FAKE_RPD: ${FAKE_RPD:-}
+      FAKE_LATENCY_MS: ${FAKE_LATENCY_MS:-100}
+      FAKE_ERROR_RATE: ${FAKE_ERROR_RATE:-0}
+      FAKE_DROP_NAME_RATE: ${FAKE_DROP_NAME_RATE:-0}
+      FAKE_SEED: ${FAKE_SEED:-}
     volumes:
       - ../eval:/eval:ro
     ports:
@@ -98,6 +106,7 @@ services:
       # 교체 축 passthrough — 이것들이 캐시 키를 가른다 (ADR-009). 셸 환경변수로 덮어쓴 뒤
       # 재기동하면 무효화가 도는 것을 눈으로 확인할 수 있다:
       #   NER_MODE=rule docker compose -f deploy/docker-compose.yml up -d api worker
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.1-flash-lite}   # 활성 모델 — fake-flash-lite면 가짜 provider (quota 0)
       NER_MODE: ${NER_MODE:-http}
       KB_NAME: ${KB_NAME:-injo}
       CACHE_EPOCH: ${CACHE_EPOCH:-1}
@@ -106,6 +115,13 @@ services:
       ROUTING_ENABLED: ${ROUTING_ENABLED:-false}    # M4 티어 라우팅 — opt-in
       PROMPT_TEMPLATE: ${PROMPT_TEMPLATE:-classpath:prompts/translate-main.st}   # M3.5-S2 — 변형은 file:/eval/prompts/*.st
       TIER_UP_ENABLED: ${TIER_UP_ENABLED:-true}     # 품질 승격(REJECTED→3.5-flash). 프롬프트 ablation 중엔 false — 모델을 고정해야 프롬프트 효과만 남는다
+      TIER_UP_MODEL: ${TIER_UP_MODEL:-gemini-3.5-flash}   # 승격 목적지 — fake 데모는 fake-flash
+      FAKE_RPM: ${FAKE_RPM:-}
+      FAKE_RPD: ${FAKE_RPD:-}
+      FAKE_LATENCY_MS: ${FAKE_LATENCY_MS:-100}
+      FAKE_ERROR_RATE: ${FAKE_ERROR_RATE:-0}
+      FAKE_DROP_NAME_RATE: ${FAKE_DROP_NAME_RATE:-0}
+      FAKE_SEED: ${FAKE_SEED:-}
     volumes:
       - ../eval:/eval:ro
     ports:

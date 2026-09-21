@@ -577,3 +577,36 @@ self-check: 파일 바이트로 계산한 기대 `prompt_version`(Java와 같은
 **남은 것.** v2(문체표 제거)·v3(연구 REP 5예시)·v4(최소)·v5(구두점만) — 각 180회, flash-lite RPD 500이라
 하루 2변형. 재개 절차는 PROGRESS §5.4. 전 변형 완료 후 판정 → 채택 시 `translate-main.st` 교체·기준선
 재저장(`score_db.py --prompt-version <new> --save-baseline`)·cost-model 프롬프트 오버헤드 행 실측 교체·ADR-013.
+
+## 가짜 LLM provider — 429·승격 유발 (M6 선행, 2026-09-21)
+
+**무엇.** `Translator` 포트의 두 번째 provider `fake`(`FakeProvider`/`FakeTranslator`, ADR-018 개정). 네트워크 0,
+quota 0. LLM을 흉내 내지 않고 파이프라인이 LLM에 기대는 **계약만** 지킨다 — 프롬프트의 [등장 인물 한자→한글]
+블록을 읽어 원문의 표면형을 한글명으로 치환한 문자열을 Structured Output JSON으로 돌려주고, usage를 동반하며,
+`FAKE_RPM`/`FAKE_RPD`/`FAKE_ERROR_RATE`/`FAKE_DROP_NAME_RATE`로 429(실측 로그 형식의 본문)·503·확정 인명 누락을
+원하는 비율로 유발한다. 어느 어댑터인지는 레지스트리 항목의 `provider`가 정하고(모르는 값은 기동 실패), 가짜 결과는
+**캐시에 적재하지 않는다**(키에 모델이 없다). 채점기는 `fake-*` 결과를 기본 제외한다(`--include-fake`).
+
+**왜.** M2 수용 기준 ②(429 → 하향 → 상향)를 60 RPM × 2워커로도 라이브 유발하지 못해 "M6 mock"으로 이관했었다.
+부하 테스트·CI E2E도 무료 quota를 태울 수 없다. 실측을 대체하는 것이 아니라 **실측이 불가능한 조건을 만드는** 장치다.
+
+**라이브 (compose 스택, `deploy/demo-fake-provider.sh A|B|C`, 골든셋 층화 60문장, 워커 캐시 off):**
+
+| 시나리오 | 조건 | 결과 | 실 모델 원장 증가 | 캐시 키 증가 |
+|---|---|---|---|---|
+| A 완주 | latency 100ms | 60/60 COMPLETED **120s**, VERIFIED 38 / DEGRADED 22 (실 모델 실행과 같은 22 — KB 미등재 문장군), 원장 60행 비용 0 | **0** | **0** |
+| B 429 유발 | `FAKE_RPM=20` | 60/60 완주 224s. 미실측 모델이라 리미터가 20에서 출발해 39까지 상향 → 가짜 한도에 걸려 **429 → `rate 39 → 19 RPM, 쿨다운 35,600ms (provider 힌트)`**, 다시 **`23 → 11 RPM, 쿨다운 1,800ms`** — 429 본문의 "retry in Ns"를 `RetryAfterHint`가 읽어 쿨다운으로 썼다 | 0 | 0 |
+| C REJECTED→승격 | `FAKE_DROP_NAME_RATE=0.3 FAKE_SEED=42`, 승격 on → `fake-flash` | **REJECTED 7건 → 승격 재호출 7회**: VERIFIED 4 / DEGRADED 2 / 재REJECTED 1(승격 모델도 30%로 빠뜨림). 원장 lite 60 + flash 7 = 67행, 비용 0 | 0 | 0 |
+
+M2 수용 기준 ②는 이것으로 닫힌다 — 429의 분류(RATE_LIMITED)·힌트 파싱·AIMD 하향·회복 후 완주가 한 배치 안에서
+관측됐다. 승격 경로도 실 quota 없이 반복 관측 가능해졌다(실 모델에서는 REJECTED가 60문장 중 1건이라 하루 한 번 본다).
+
+**단위 검증 (LLM 0회, common +15 / worker +3):** quota 창(분당·일일, 모델별, UTC 자정 리셋)을 시계를 돌려 검증,
+503 주입, 시드 재현성, 실제 `PromptAssembler` 출력 파싱, 동명이인 첫 후보, 스트림 청크, **규칙 NER + 인조 KB +
+가짜 Translator + QualityGate를 끝까지 통과하면 VERIFIED / 이름을 빠뜨리면 REJECTED**, 그리고 워커의
+`FailureClassifier`·`RetryAfterHint`가 가짜 429/503을 실 provider와 같은 분기로 읽는지.
+
+**한계.** quota 창은 프로세스 단위다(api와 worker가 각자 셈) — 워커 단일 인스턴스(D11)라 배치 경로에선 문제가 없다.
+토큰 수는 문자 수 × 0.65 추정. `docker compose up -d worker`는 의존 서비스(api)를 기본 env로 재생성하므로 실험
+중엔 반드시 `--no-deps` — 이 데모를 준비하다 api가 골든셋 300으로 되돌아가 크기 탐침이 실제 배치를 만들었다
+(`83ca0bb5`, 13/61 fake 처리 후 PAUSED — 채점에서 기본 제외되므로 무해, 지워도 된다).

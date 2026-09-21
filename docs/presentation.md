@@ -198,7 +198,7 @@ AI 모델은 파일이다. 수백 MB짜리 숫자 덩어리(가중치)와 그것
 클라이언트 → API 서버(Spring Boot) → Redis Streams 큐 → Worker(Spring Boot)
                                                           ├─ NER 서버 (Python + ONNX INT8, CPU)
                                                           ├─ KB 링킹 (in-memory 역색인, 2,690명)
-                                                          ├─ 티어 라우팅 → Spring AI → Gemini
+                                                          ├─ 티어 라우팅 → Translator 포트 → Spring AI → Gemini  (또는 fake provider: 네트워크·quota 0)
                                                           └─ PostgreSQL(결과·비용 원장) / Redis(캐시·예산)
                                      Micrometer → Prometheus → Grafana (비용 대시보드)
 ```
@@ -542,7 +542,7 @@ L2 캐시의 판정이 이 절차의 실제 사례다. L2 결과는 언어모델
 
 | 포트 | 구현 | 바꾸는 방법 | 증거 |
 |---|---|---|---|
-| `Translator` (번역 모델) | flash-lite / 3.5-flash / gemma-4 | `GEMINI_MODEL` | 3종 라이브 호출 (gemma-4는 혼잡 무응답 — 그것도 실측된 특성) |
+| `Translator` (번역 모델) | flash-lite / 3.5-flash / gemma-4 / **fake**(네트워크·quota 0) | `GEMINI_MODEL` | 3종 라이브 호출 (gemma-4는 혼잡 무응답 — 그것도 실측된 특성) + 가짜 provider로 429·승격 유발 데모 |
 | `EntityRecognizer` (인명 인식) | ONNX 서버 / 규칙 기반 | `NER_MODE=http\|rule` | 골든셋 재현율 100% vs 26.9% |
 | `KnowledgeSource` (인물 사전) | 인조 / 정조 / 없음 | `KB_NAME=injo\|jeongjo` | 정조 사전으로 기동, 코드 0줄, 蔡濟恭(채제공) 링크 확인 |
 

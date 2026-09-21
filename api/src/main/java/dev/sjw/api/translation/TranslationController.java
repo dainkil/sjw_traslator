@@ -89,9 +89,10 @@ public class TranslationController {
 
         // 적재 전 품질 게이트 (ADR-009: 게이트 통과분만). LLM 추가 호출 0회의 결정론 검사다.
         QualityGate.Verdict verdict = qualityGate.grade(resp);
-        if (byok == null) {
+        if (byok == null && !translatorFactory.isFake(resp.meta().model())) {
             // BYOK 결과는 공용 캐시에 적재하지 않는다 — 요청자가 자기 키로 산 번역을
             // 다른 테넌트가 공짜로 받아가는 모양이 된다. 조회는 위에서 이미 허용했다.
+            // fake provider 결과도 적재하지 않는다 — 캐시 키에 모델이 없어 실 요청이 가짜를 받게 된다.
             cache.storeL1(req.text(), resp, verdict.grade());
             cache.storeL2(req.text(), resp.entities(), resp, verdict.grade());
         }

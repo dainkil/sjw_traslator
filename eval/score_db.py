@@ -73,7 +73,7 @@ def load_groundtruth(path: Path):
     return {doc_id: [e[2] for e in ents if e[0] == "PER"] for doc_id, ents in gt.items()}
 
 
-def fetch_results(conn, hashes, batch_ids=None, prompt_version=None, model=None):
+def fetch_results(conn, hashes, batch_ids=None, prompt_version=None, model=None, include_fake=False):
     """골든셋 문장과 매칭되는 최신 SUCCEEDED 결과 (필터 안에서 hash당 1건)."""
     sql = """
         SELECT DISTINCT ON (j.normalized_hash)
@@ -84,6 +84,8 @@ def fetch_results(conn, hashes, batch_ids=None, prompt_version=None, model=None)
         WHERE j.status = 'SUCCEEDED' AND j.normalized_hash = ANY(%s)
     """
     params = [list(hashes)]
+    if not include_fake:
+        sql += " AND (j.model_used IS NULL OR j.model_used NOT LIKE 'fake-%%')"   # 가짜 provider 결과는 품질 채점 대상이 아니다
     if batch_ids:
         sql += " AND j.batch_id = ANY(%s::uuid[])"
         params.append(list(batch_ids))
@@ -242,6 +244,7 @@ def main():
     parser.add_argument("--corpus", type=Path, default=DEFAULT_CORPUS)
     parser.add_argument("--groundtruth", type=Path, default=DEFAULT_GROUNDTRUTH)
     parser.add_argument("--json", action="store_true", help="기계 출력 (stdout에 JSON만, 사람용 줄은 stderr)")
+    parser.add_argument("--include-fake", action="store_true", help="fake provider(fake-*) 결과도 포함 — 데모·플럼빙 점검용")
     parser.add_argument("--no-gate", action="store_true", help="기준선 비교를 생략 (채점만; 드라이버가 자체 판정할 때)")
     parser.add_argument("--self-check-reference", action="store_true",
                         help="전문가 번역을 가설로 넣어 정답지 자체를 점검 (LLM·DB 불필요)")
@@ -271,7 +274,7 @@ def main():
 
     import psycopg  # DB 경로에서만 필요
     with psycopg.connect(DSN) as conn:
-        found = fetch_results(conn, gold.keys(), args.batch_id, args.prompt_version, args.model)
+        found = fetch_results(conn, gold.keys(), args.batch_id, args.prompt_version, args.model, args.include_fake)
 
     items = [{"id": gold[h]["id"], "reference": gold[h]["reference"], "hypothesis": res["hypothesis"],
               "entities": res["entities"], "tokens_in": res["tokens_in"], "grade": res["grade"]}
@@ -308,7 +311,7 @@ def main():
         compare = None
         if args.compare_batch:
             with psycopg.connect(DSN) as conn:
-                found_b = fetch_results(conn, gold.keys(), batch_ids=[args.compare_batch])
+                found_b = fetch_results(conn, gold.keys(), batch_ids=[args.compare_batch], include_fake=args.include_fake)
             items_b = [{"id": gold[h]["id"], "reference": gold[h]["reference"], "hypothesis": r["hypothesis"],
                         "entities": r["entities"], "tokens_in": r["tokens_in"], "grade": r["grade"]}
                        for h, r in found_b.items()]

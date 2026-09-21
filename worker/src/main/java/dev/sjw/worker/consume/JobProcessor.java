@@ -242,9 +242,13 @@ public class JobProcessor {
             }
 
             // 게이트 통과분만 적재 (ADR-009). 승격이 있었다면 승격 결과가 적재된다.
-            cache.storeL1(job.sourceText(), resp, verdict.grade());
-            // L2는 VERIFIED + 모든 확정 인명의 전체형 출현분만 (보수적 적재)
-            cache.storeL2(job.sourceText(), resp.entities(), resp, verdict.grade());
+            // fake provider 결과는 적재하지 않는다 — 캐시 키에 모델이 없어(번역 LLM은 epoch 수동 손잡이)
+            // 가짜 번역이 L1에 들어가면 같은 문장의 실 요청이 가짜를 받는다.
+            if (!translatorFactory.isFake(resp.meta().model())) {
+                cache.storeL1(job.sourceText(), resp, verdict.grade());
+                // L2는 VERIFIED + 모든 확정 인명의 전체형 출현분만 (보수적 적재)
+                cache.storeL2(job.sourceText(), resp.entities(), resp, verdict.grade());
+            }
 
             jobs.insertResult(jobId, resp.translatedText(),
                     JSON.writeValueAsString(resp.entities()),

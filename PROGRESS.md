@@ -15,7 +15,7 @@
 | M3.5 평가 신뢰도 + 프롬프트 실측 (삽입) | 진행 중 (S1 완료 · S2 측정 중, 2026-09-21) | S1: 서빙 채점기에 독립 정답지 **ETS 98.21%** 도입 — 종전 헤드라인 99.09%는 주입 반영률(게이트 지표·순환)로 재명명. S2: 서빙 프롬프트 ablation (예정) — §5.4 |
 | M4 NER 비용 라우팅 | 진행 중 (S1 완료, 2026-09-11) | 신호 분포 실측 → **계획서 §5.1 표가 성립하지 않음을 확인**(T2 29.86%가 quota의 8배, 완역 124→926일). 난이도/배정 분리로 재설계, ADR-010 |
 | M5 비용 SLI + 예산 서킷브레이커 | 예정 | |
-| M6 배포/CI/부하테스트 | 예정 | |
+| M6 배포/CI/부하테스트 | 선행 1건 완료 (2026-09-21) | **가짜 LLM provider** — 429·503·REJECTED를 quota 0으로 유발, M2 수용 기준 ② 닫힘 — §5.5 |
 
 ## 2. 지금까지의 핵심 실측 (전부 재현 커맨드 포함, docs/benchmarks.md)
 
@@ -39,7 +39,7 @@
 | S5 | 적응형 rate control: Redis Lua 토큰버킷(멀티워커 공유) + AIMD(429→절반, 연속 성공→+1 RPM), 고정 페이싱 제거 | `deploy/demo-rate-control.sh`, 리미터 테스트 (ADR-017) |
 | S6 | 단건 SSE 스트리밍(entities→token→done), 배치 처리량 실측, rate 데모 판정 | benchmarks.md M2 섹션 — 처리량 23 jobs/min, 워커 2배에도 동일, 중복 0건 |
 
-**M2 수용 기준 증거 상태:** ① 강제 종료→재개 중복 0건 = `demo-resume.sh` 라이브 증명 ✅ ② 429→하향→상향 = **라이브 유발 실패** (60 RPM·2워커에서도 429 0건 — provider 유효 한도 미달), AIMD 자체는 실측 429 원문 기반 단위 테스트로 검증, 강제 429 라이브 검증은 M6 mock provider로 이관 ③ DLQ 분류 적재 = 404 유발 라이브 증명 ✅. 상세는 benchmarks.md.
+**M2 수용 기준 증거 상태:** ① 강제 종료→재개 중복 0건 = `demo-resume.sh` 라이브 증명 ✅ ② 429→하향→상향 = ~~라이브 유발 실패~~ (60 RPM·2워커에서도 429 0건 — provider 유효 한도 미달) **→ 2026-09-21 가짜 provider로 유발 성공: 429 2건, rate 39→19·23→11 RPM, 완주 (§5.5)**, AIMD 자체는 실측 429 원문 기반 단위 테스트로 검증, 강제 429 라이브 검증은 M6 mock provider로 이관 ③ DLQ 분류 적재 = 404 유발 라이브 증명 ✅. 상세는 benchmarks.md.
 
 ## 4. 새 컴퓨터 셋업 (순서대로)
 
@@ -333,7 +333,7 @@ M2.5처럼 계획 중간에 삽입한 마일스톤. 계기는 AI 엔지니어링
     # 2) 다음 변형: 워커를 그 프롬프트 + 캐시 off + 승격 off로 재기동 후 실행 (api는 이미 SJW_EVAL_CORPUS=/eval/eval60_stratified.json)
     PROMPT_TEMPLATE=file:/eval/prompts/v4-minimal.st CACHE_L1_ENABLED=false CACHE_L2_ENABLED=false \
       TIER_UP_ENABLED=false SJW_EVAL_CORPUS=/eval/eval60_stratified.json \
-      docker compose -f deploy/docker-compose.yml up -d worker
+      docker compose -f deploy/docker-compose.yml up -d --no-deps worker
     uv run --with sacrebleu --with "psycopg[binary]" python eval/prompt_ablation.py --variant v4   # 이어서 v2, v3
     # QUOTA_PAUSED로 멈추면: curl -X POST localhost:8080/api/v1/batches/<id>/resume 후 같은 --variant 명령 재실행
     # 전부 끝나면: ... --verdict  /  ... --table (benchmarks 표 교체)
@@ -349,6 +349,27 @@ M2.5처럼 계획 중간에 삽입한 마일스톤. 계기는 AI 엔지니어링
     S2 종료 시 `--save-baseline`이 켠다) + **ADR-013 작성**(비결정 출력 회귀 검증 — 결정론 축 CI / 확률 축 오프라인).
   - 채택 시: `translate-main.st` 교체 → `score_db.py --prompt-version <new> --save-baseline` → cost-model 프롬프트
     오버헤드 행(448·700 tok) 실측 교체 → README/presentation의 `main-d5ac24e9` 갱신 → ADR-013. 미채택 시 결과만 기록.
+
+### 5.5 M6 선행 — 가짜 LLM provider (2026-09-21)
+
+다른 세션이 시작한 `FakeTranslator`/`FakeProvider`/`FakeLlmProperties`(common/llm)를 이어받아 배선·검증·데모까지.
+`Translator` 포트의 **두 번째 provider** — ADR-018 재검토 조건("두 번째 provider가 필요해지면") 이행. 네트워크 0, quota 0.
+
+- **배선:** `TranslatorFactory`가 레지스트리 `provider`로 분기(`google-genai` | `fake`, 모르는 값은 `ModelSpec`이 기동
+  시 거부), `LlmConfig`에 `FakeProvider` 싱글턴 빈(quota 창·난수가 프로세스 상태), 레지스트리에 `fake-flash-lite`(T0)·
+  `fake-flash`(T1, 승격 데모용) + `sjw.llm.fake.*` 손잡이, compose에 `GEMINI_MODEL`·`FAKE_*`·`TIER_UP_MODEL` passthrough.
+- **안전장치:** 가짜 결과는 L1/L2에 적재하지 않는다(`JobProcessor`·`TranslationController` — 캐시 키에 모델이 없어
+  실 요청이 가짜를 받게 된다). `score_db.py`는 `fake-*` 결과를 기본 제외(`--include-fake`).
+- **테스트 +18:** `FakeProviderTest`(시계 조작으로 분당·일일 창, 모델별, 503, 시드) / `FakeTranslatorTest`(실 조립 프롬프트
+  파싱, 동명이인, JSON·usage, 스트림, **규칙 NER + 인조 KB + 게이트 E2E: VERIFIED ↔ REJECTED**) / `TranslatorFactoryTest` /
+  worker `FakeProviderFailureContractTest`(가짜 429·503이 RATE_LIMITED·QUOTA_DAILY·SERVER_ERROR로 읽히고 재시도 힌트가
+  파싱됨). common 92 / worker 27 / api 통과, eval 11.
+- **라이브 데모 `deploy/demo-fake-provider.sh A|B|C`** (benchmarks 마지막 절): A 60/60 120s 실 호출 0·캐시 0 /
+  **B `FAKE_RPM=20` → 429 2건, 리미터 39→19·23→11 RPM(힌트 쿨다운) → 완주** / C `FAKE_DROP_NAME_RATE=0.3` → REJECTED 7 →
+  `fake-flash` 승격 7회. **M2 수용 기준 ②가 닫혔다.**
+- ADR-018 개정(provider 축 2구현 + 재검토 조건 이행 기록). 부수: `up -d worker`가 api를 기본 env로 재생성하는 함정 →
+  재기동은 항상 `--no-deps`(§5.4 재개 절차도 수정). 실수로 생긴 배치 `83ca0bb5`는 PAUSED, 무해.
+- 남은 것: 부하 테스트(M6)에서 `FAKE_LATENCY_MS`·`FAKE_ERROR_RATE`로 처리량 상한·서킷 동작 실측, CI E2E에 fake 스택.
 
 ### 5.2 M2.5 완료 기록
 

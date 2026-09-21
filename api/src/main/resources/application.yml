@@ -48,6 +48,27 @@ sjw:
         tier: T0
         unit-price-in-usd-per-mtok: 0      # 유료 제공 없음 — counterfactual 0
         unit-price-out-usd-per-mtok: 0
+      # 가짜 provider (M6 mock, ADR-018 재검토 조건 이행) — 네트워크 0, quota 0. 활성화는 GEMINI_MODEL=fake-flash-lite.
+      # 실측 대체가 아니라 실측이 불가능한 조건(429·503·REJECTED 유발, 부하)을 만드는 장치다. 결과는 캐시에 적재되지 않는다.
+      - id: fake-flash-lite
+        provider: fake
+        tier: T0
+        unit-price-in-usd-per-mtok: 0
+        unit-price-out-usd-per-mtok: 0
+      - id: fake-flash                      # 승격(REJECTED→상위) 데모용 상위 모델: TIER_UP_MODEL=fake-flash
+        provider: fake
+        tier: T1
+        unit-price-in-usd-per-mtok: 0
+        unit-price-out-usd-per-mtok: 0
+    # 가짜 provider 손잡이 (sjw.llm.fake.*, FakeLlmProperties). 비우면 지연 100ms·quota 무제한·장애 0.
+    fake:
+      latency-ms: ${FAKE_LATENCY_MS:100}
+      jitter-ms: ${FAKE_JITTER_MS:0}
+      rpm: ${FAKE_RPM:}                     # 분당 한도 → 초과 시 429 PerMinute (실측 형식의 본문)
+      rpd: ${FAKE_RPD:}                     # 일일 한도 → 429 PerDay
+      error-rate: ${FAKE_ERROR_RATE:0}      # 503 overloaded 주입 확률
+      drop-name-rate: ${FAKE_DROP_NAME_RATE:0}   # 확정 인명 1건 누락 확률 → 게이트 REJECTED → 승격 경로
+      seed: ${FAKE_SEED:}
   prompt:
     # M3.5-S2 프롬프트 교체 축 (ADR-013). 템플릿·패턴 파일 위치 — classpath: 또는 file:.
     # 버전(prompt_version)은 위치가 아니라 바이트 체크섬에서 파생되므로 변형을 file:로 띄우면

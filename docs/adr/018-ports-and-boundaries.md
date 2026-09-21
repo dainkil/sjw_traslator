@@ -1,6 +1,6 @@
 # ADR-018: 포트/어댑터 경계 (Translator / EntityRecognizer / KnowledgeSource)와 그 한계
 
-- 상태: 승인 (M2.5 S2~S4에서 구현)
+- 상태: 승인 (M2.5 S2~S4에서 구현) · **개정 (2026-09-21): Translator provider 축 2구현 — `fake` 추가**
 - 날짜: 2026-09-01
 
 ## 배경
@@ -21,7 +21,7 @@ M3은 캐시 무효화를 `kb_version`에, M4는 모델 스위칭에 의존하�
 
 | 포트 | 경계 | 구현 (전부 실동작) | 교체 스위치 |
 |---|---|---|---|
-| `Translator` | 프롬프트 in → 텍스트+usage out. 파싱은 도메인 | `GoogleGenAiTranslator` × 레지스트리 3모델 | `GEMINI_MODEL` |
+| `Translator` | 프롬프트 in → 텍스트+usage out. 파싱은 도메인 | `GoogleGenAiTranslator` × 레지스트리 3모델 / **`FakeTranslator`**(provider `fake`, 네트워크 0·quota 0) | `GEMINI_MODEL` (어느 어댑터인지는 레지스트리 항목의 `provider`) |
 | `EntityRecognizer` | 빈 결과 ≠ 장애 (`NerUnavailableException`) | `HttpOnnxRecognizer` / `RulePatternRecognizer` | `NER_MODE` |
 | `KnowledgeSource` | version은 데이터 파생값 (체크섬) | `FileKnowledgeSource`(injo/jeongjo) / `NoOp` | `KB_NAME` / `KB_MODE` |
 
@@ -32,7 +32,15 @@ M3은 캐시 무효화를 `kb_version`에, M4는 모델 스위칭에 의존하�
 
 ## 한계 (이 경계가 안 해주는 것)
 
-- `Translator`의 provider 축은 구현 1개다(google-genai). 다른 provider(OpenAI 등)를 붙이려면 어댑터 신작이 필요하다 — 지금 안 만드는 이유는 위 원칙 그대로: 두 번째 provider의 실사용처가 없다.
+- ~~`Translator`의 provider 축은 구현 1개다(google-genai).~~ **개정 (2026-09-21):** 두 번째 provider `fake`가 생겼다 — 다른
+  벤더가 아니라 **실측이 불가능한 조건을 만드는 장치**다(`FakeProvider`/`FakeTranslator`, M6 mock). 실사용처가 생겨서
+  만들었다: M2 수용 기준 ②의 라이브 429를 60RPM×2워커로도 못 만들었고(M6 mock으로 이관), 부하 테스트·CI E2E는
+  무료 quota를 태울 수 없다. 가짜는 LLM을 흉내 내지 않고 파이프라인이 LLM에 기대는 **계약만** 지킨다 — Structured
+  Output JSON, 확정 인명 반영(→ VERIFIED; `dropNameRate`로 REJECTED 유발), 등장 순서 보존(L2 슬롯팅 성립), usage
+  동반, 그리고 429 본문은 실측 로그 형식(quotaId PerMinute/PerDay, "retry in Ns") — `FailureClassifier`·`RetryAfterHint`가
+  실 provider와 **같은 분기**를 타는지 워커 테스트로 고정했다. 어느 어댑터인지는 코드가 아니라 레지스트리 `provider`가
+  정하고(모르는 값은 기동 실패), 가짜 결과는 **캐시에 적재하지 않는다**(키에 모델이 없어 실 요청이 가짜를 받게 된다).
+  OpenAI 등 실제 벤더 교체는 여전히 어댑터 신작이 필요하다 — 그 실사용처는 아직 없다.
 - 프롬프트 템플릿은 아직 Java 상수다 (S7에서 외부화). 포트를 갈아도 프롬프트가 모델 특성에 결합돼 있으면 교체 품질은 별개 문제다.
 - `EntityRecognizer` 교체는 품질 게이트(S5)와 결합해야 안전하다 — rule 모드는 recall 27%라 무게이트 운영 시 KB 주입 누락이 조용히 늘어난다.
 
@@ -43,5 +51,5 @@ M3은 캐시 무효화를 `kb_version`에, M4는 모델 스위칭에 의존하�
 
 ## 재검토 조건
 
-- 두 번째 provider가 실제로 필요해지면 (예: Gemini 무료 정책 종료) — `Translator` 구현 추가로 흡수되는지가 이 ADR의 시험대다.
+- ~~두 번째 provider가 실제로 필요해지면~~ → `fake`로 시험됐다 (2026-09-21): `Translator` 구현 1개 + `TranslatorFactory` 분기 1곳 + 레지스트리 항목으로 흡수됐고 도메인 코드는 열리지 않았다. 실제 벤더(예: Gemini 무료 정책 종료)도 같은 경로여야 한다.
 - BYOK(S6)가 요청 단위 클라이언트를 요구할 때 `LlmConfig`의 싱글턴 조립이 어떻게 바뀌는지 기록할 것 (ADR-020).

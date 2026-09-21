@@ -37,7 +37,7 @@
 클라이언트 → API 서버(Spring Boot) → Redis Streams 큐 → Worker(Spring Boot)
                                                           ├─ NER 서버 (Python + ONNX INT8, CPU)
                                                           ├─ KB 링킹 (in-memory 역색인, 2,690명)
-                                                          ├─ 티어 라우팅 → Spring AI → Gemini
+                                                          ├─ 티어 라우팅 → Translator 포트 → Spring AI → Gemini  (또는 fake provider: 네트워크·quota 0)
                                                           └─ PostgreSQL(결과·비용 원장) / Redis(캐시·예산)
                                      Micrometer → Prometheus → Grafana (비용 대시보드)
 ```
