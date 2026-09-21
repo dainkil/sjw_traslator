@@ -13,6 +13,9 @@ NER 추론 결과는 `simulate_cache.py`가 만든 캐시를 재사용한다.
   엔티티 개수 / 타입 분포(PER·LOC·DAT·POH) / KB 매칭 실패 수 / 링킹 단계(SINGLE·TIME·OFFICE·
   AMBIGUOUS·MISS) / 정형문 패턴 매칭 여부
 
+출력은 두 부분이다: ① 계획서 §5.1 원안 표를 문자 그대로 적용한 분포(UNSPECIFIED 35.87% — ADR-010의 근거)
+② **채택한 규칙**(ADR-010, `TierRouter.classify` 이식)의 분포 — T0 13.02 / T1 85.15 / T2 1.83의 재현 커맨드.
+
 사용법:
   python3 eval/simulate_routing.py --years all --ner-cache eval/.ner_cache_all.json
 """
@@ -28,19 +31,25 @@ sys.path.insert(0, str(ROOT / "eval"))
 from simulate_cache import (MAX_TEXT, link, normalized_hash, reign_year_to_ad)
 
 PATTERN_FILE = ROOT / "common" / "src" / "main" / "resources" / "prompts" / "positive-patterns.tsv"
+# 채택한 규칙의 T0 표지 — 프롬프트 어휘 목록과 일부러 분리된 리소스 (ADR-010 (4), TierRouter.PATTERN_RESOURCE)
+FORMULAIC_FILE = ROOT / "common" / "src" / "main" / "resources" / "routing" / "formulaic-patterns.tsv"
 
 
-def load_patterns():
+def load_patterns(path=PATTERN_FILE):
     out = []
-    for line in PATTERN_FILE.read_text(encoding="utf-8").split("\n"):
+    for line in path.read_text(encoding="utf-8").split("\n"):
         line = line.strip()
         if line and not line.startswith("#"):
             out.append(re.compile(line.split("\t")[0]))
     return out
 
 
-def signals(text, entities, patterns):
-    """§5.1의 신호 추출 — 전부 LLM 호출 전에 이미 손에 있는 값이다."""
+def signals(text, entities, patterns, formulaic=()):
+    """§5.1의 신호 추출 — 전부 LLM 호출 전에 이미 손에 있는 값이다.
+
+    pattern   = 프롬프트 어휘 목록(positive-patterns.tsv) 매칭 — 계획서 원안 표가 쓰던 신호
+    formulaic = 정형문 구조 표지(routing/formulaic-patterns.tsv) 매칭 — 채택한 규칙의 T0 신호
+    """
     types = collections.Counter(e["type"] for e in entities)
     stages = collections.Counter(e["stage"] for e in entities if e["type"] == "PER")
     confirmed = sum(1 for e in entities
@@ -54,6 +63,7 @@ def signals(text, entities, patterns):
         "n_miss": stages.get("MISS", 0),
         "n_ambiguous": stages.get("AMBIGUOUS", 0),
         "pattern": any(p.search(text) for p in patterns),
+        "formulaic": any(p.search(text) for p in formulaic),
         "length": len(text),
     }
 
@@ -67,6 +77,24 @@ def tier_plan(s):
     if 1 <= s["n_per"] <= 2 and s["n_miss"] == 0 and s["n_ambiguous"] == 0:
         return "T1"
     return "UNSPECIFIED"
+
+
+def tier_adopted(s):
+    """채택한 규칙 — TierRouter.classify와 같은 순서·같은 조건 (ADR-010)."""
+    if s["n_ambiguous"] > 0:
+        return "T2"
+    if s["n_entities"] == 0 and s["formulaic"]:
+        return "T0"
+    return "T1"
+
+
+def t1_reason(s):
+    """TierRouter.describeT1과 같은 3분기 — T1은 기본값이라 '왜 T1인가'가 읽혀야 한다."""
+    if s["n_miss"] > 0:
+        return "KB 미등재 보유 (KB 확장 대상)"
+    if s["n_per"] == 0:
+        return "엔티티 0개, 정형문 표지 없음" if s["n_entities"] == 0 else "PER 없음 (LOC·DAT만)"
+    return "확정 PER 보유"
 
 
 def pct(n, d):
@@ -90,6 +118,7 @@ def main():
     inv = json.load(open(Path(args.kb) / f"inverted_index_{args.kb_name}.json"))
     ids = json.load(open(Path(args.kb) / f"id_lookup_{args.kb_name}.json"))
     patterns = load_patterns()
+    formulaic = load_patterns(FORMULAIC_FILE)
 
     missing = [i for i in items if normalized_hash(i["original"]) not in cache]
     if missing:
@@ -107,7 +136,7 @@ def main():
             if e["type"] == "PER":
                 stage, _ = link(e["surface"], year, text, inv, ids)
             ents.append({"type": e["type"], "stage": stage})
-        rows.append(signals(text, ents, patterns))
+        rows.append(signals(text, ents, patterns, formulaic))
 
     n = len(rows)
     print(f"\n── 신호 분포 ──")
@@ -210,6 +239,21 @@ def main():
     print(f"  10회 이상 등장하는 표면형만 채워도 MISS 멘션의 {pct(covered, sum(miss_surfaces.values()))} 해소")
     print(f"  상위 200개 표면형이 MISS 멘션의 {pct(top, sum(miss_surfaces.values()))}")
     print(f"  최빈 표면형: {[f'{k}({v})' for k, v in miss_surfaces.most_common(8)]}")
+
+    # ── 채택한 규칙 (ADR-010) — TierRouter.classify 이식. 이 절이 T0 13.02 / T1 85.15 / T2 1.83의 재현이다 ──
+    adopted = collections.Counter(tier_adopted(s) for s in rows)
+    zero_ent = [s for s in rows if s["n_entities"] == 0]
+    covered0 = sum(1 for s in zero_ent if s["formulaic"])
+    print(f"\n── 채택한 규칙 (ADR-010: T2=모호만 / T0=엔티티0+정형문 표지 / T1=나머지) ──")
+    for k in ("T0", "T1", "T2"):
+        print(f"  {k:<14}{adopted[k]:>8,}  {pct(adopted[k], n):>8}")
+    print(f"  UNSPECIFIED   {0:>8,}  {pct(0, n):>8}   (기본값 T1 — 미정의 구간 없음)")
+    print(f"  정형문 표지({FORMULAIC_FILE.name})가 엔티티 0개 문장 {len(zero_ent):,}건 중 "
+          f"{covered0:,}건을 덮는다 ({pct(covered0, len(zero_ent))}) — 어휘 목록 기준 T0 {tiers['T0']:,}건과 비교")
+    print(f"  T1 사유 분해 (TierRouter.describeT1):")
+    t1 = collections.Counter(t1_reason(s) for s in rows if tier_adopted(s) == "T1")
+    for k, v in t1.most_common():
+        print(f"    {k:<34}{v:>8,}  (T1 중 {pct(v, adopted['T1'])})")
 
     # 품질 기반 상향 라우팅(이미 구현됨)의 수요도 같은 축에서 본다
     REJECTED_RATE = 0.0436   # docs/benchmarks.md M3-S4 (정렬 보정 후 전수 게이트 오탐률)
