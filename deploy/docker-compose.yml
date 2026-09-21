@@ -105,6 +105,7 @@ services:
       CACHE_L2_ENABLED: ${CACHE_L2_ENABLED:-false}   # M3-S3 템플릿 슬롯 캐시 — opt-in
       ROUTING_ENABLED: ${ROUTING_ENABLED:-false}    # M4 티어 라우팅 — opt-in
       PROMPT_TEMPLATE: ${PROMPT_TEMPLATE:-classpath:prompts/translate-main.st}   # M3.5-S2 — 변형은 file:/eval/prompts/*.st
+      TIER_UP_ENABLED: ${TIER_UP_ENABLED:-true}     # 품질 승격(REJECTED→3.5-flash). 프롬프트 ablation 중엔 false — 모델을 고정해야 프롬프트 효과만 남는다
     volumes:
       - ../eval:/eval:ro
     ports:

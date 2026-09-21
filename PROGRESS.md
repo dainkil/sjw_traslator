@@ -12,7 +12,7 @@
 | M2 비동기 + 배치 엔진 | ✅ 완료 (2026-09-01) | 아래 §3 — 수용 기준 3종 증거 상태 포함 |
 | M2.5 교체 가능성 + 품질 게이트 + 배포 기반 | ✅ 완료 (2026-09-01) | §5.1 수용 기준 판정 — 포트 3종·품질 게이트·BYOK·compose 전 스택 |
 | M3 템플릿 슬롯 캐싱 | ✅ **완료 (2026-09-11)** | S1 슬롯 로직 / S2 L1 라이브 / S3 L2 라이브 / S4 히트율 **17.36% 실측** / S5 비열등 **통과** — 수용 기준 판정은 §5.1.2 |
-| M3.5 평가 신뢰도 + 프롬프트 실측 (삽입) | 진행 중 (S1 완료, 2026-09-21) | S1: 서빙 채점기에 독립 정답지 **ETS 98.21%** 도입 — 종전 헤드라인 99.09%는 주입 반영률(게이트 지표·순환)로 재명명. S2: 서빙 프롬프트 ablation (예정) — §5.4 |
+| M3.5 평가 신뢰도 + 프롬프트 실측 (삽입) | 진행 중 (S1 완료 · S2 측정 중, 2026-09-21) | S1: 서빙 채점기에 독립 정답지 **ETS 98.21%** 도입 — 종전 헤드라인 99.09%는 주입 반영률(게이트 지표·순환)로 재명명. S2: 서빙 프롬프트 ablation (예정) — §5.4 |
 | M4 NER 비용 라우팅 | 진행 중 (S1 완료, 2026-09-11) | 신호 분포 실측 → **계획서 §5.1 표가 성립하지 않음을 확인**(T2 29.86%가 quota의 8배, 완역 124→926일). 난이도/배정 분리로 재설계, ADR-010 |
 | M5 비용 SLI + 예산 서킷브레이커 | 예정 | |
 | M6 배포/CI/부하테스트 | 예정 | |
@@ -310,10 +310,36 @@ M2.5처럼 계획 중간에 삽입한 마일스톤. 계기는 AI 엔지니어링
     고정한다(사후 임계 금지).
   - 발견: 이 n=70에서 정답지 인명 112 vs 주입 인명 110 — 골든셋의 KB 커버리지가 전수(MISS 36.51%)보다
     훨씬 높다. MISS 문장군의 ETS는 별도 측정 대상.
-- **다음: S2 — 서빙 프롬프트 ablation** (생산 코드 경로, flash-lite 최대 900회 = 이틀 quota).
-  `PromptAssembler` 리소스 경로 설정화(`PROMPT_TEMPLATE`, 버전은 체크섬 그대로) → 변형 4종을 층화 60문장
-  × 3라운드 배치로 → V0 대조군 폭으로 ETS 임계 선고정 → 비열등 통과 중 tokens_in 최소를 채택.
-  채택 시 `translate-main.st` 교체·기준선 재저장·cost-model 갱신·ADR-013.
+- **S2 진행 중 (2026-09-21) — 서빙 프롬프트 ablation, 생산 코드 경로.** 도구는 커밋됨(f1aafb0):
+  `PromptAssembler` 리소스 경로 설정화(`PROMPT_TEMPLATE`, 버전은 바이트 체크섬 — Python 계산값이 생산
+  `main-d5ac24e9`와 일치), 변형 5종 `eval/prompts/`, 층화 표본 `eval/eval60_stratified.json`(15층, 정답지 인명
+  104), 드라이버 `eval/prompt_ablation.py`(v0 먼저 강제·self-check·재개 가능). 결과 정본 `eval/prompt_ablation.json`,
+  표·해석은 `docs/benchmarks.md` 마지막 절.
+  - **v0 3라운드 완료 → 임계 고정: ETS 허용 하락 0.0000**(세 라운드 ETS 동일 0.9712). chrF 37.60~38.29.
+  - **v1(페르소나·원칙 제거) 통과:** tokens −12.2%, 인명 지표·등급 동일, chrF −1.48(연구의 "효과 없음"과 달리
+    문체에 값을 한다, 임계 안). **중간 선두 — 최종 아님** (v2~v5 미측정).
+  - 부수: **REJECTED 첫 라이브 자연 발생**(兪榥→유황, 승격 → 3.5-flash VERIFIED). 1차 시도는 승격 때문에 모델이
+    섞여 폐기 → 이후 `TIER_UP_ENABLED=false`(compose passthrough 추가)·예산 2n.
+  - 발견: 정답 코퍼스 300문장 전부 `아뢰기를,“…”하니,`(curly·공백 없음)인데 서빙 예시는 `아뢰기를, "…" 하니,` →
+    구두점만 바꾼 v5 추가. 6변형 × 3 × 60 = 1,080회 (RPD 500 → 하루 2변형).
+  - **v5(구두점만) 라운드 1: chrF 39.62** — v0 세 라운드보다 위, 인명 동일. 라운드 2는 16/60에서 **QUOTA_PAUSED**
+    (batch `e95b8d16-9fdb-4453-be8d-528f755bc754`). 워커는 지금 v5 프롬프트·캐시 off·승격 off 상태로 떠 있다.
+  - **재개 절차 (다음 날, quota 리셋 = PT 자정 = 07:00Z). 남은 것: v5 라운드 2~3, v2, v3, v4 = 660회 → 이틀.**
+    ```bash
+    # 1) 멈춘 v5 라운드 2 재개 (워커는 이미 v5 상태) — resume은 FAILED를 PENDING으로 되돌려 재발행한다
+    curl -X POST localhost:8080/api/v1/batches/e95b8d16-9fdb-4453-be8d-528f755bc754/resume
+    uv run --with sacrebleu --with "psycopg[binary]" python eval/prompt_ablation.py --variant v5   # 라운드 2 이어서 대기 → 3
+    # 2) 다음 변형: 워커를 그 프롬프트 + 캐시 off + 승격 off로 재기동 후 실행 (api는 이미 SJW_EVAL_CORPUS=/eval/eval60_stratified.json)
+    PROMPT_TEMPLATE=file:/eval/prompts/v4-minimal.st CACHE_L1_ENABLED=false CACHE_L2_ENABLED=false \
+      TIER_UP_ENABLED=false SJW_EVAL_CORPUS=/eval/eval60_stratified.json \
+      docker compose -f deploy/docker-compose.yml up -d worker
+    uv run --with sacrebleu --with "psycopg[binary]" python eval/prompt_ablation.py --variant v4   # 이어서 v2, v3
+    # QUOTA_PAUSED로 멈추면: curl -X POST localhost:8080/api/v1/batches/<id>/resume 후 같은 --variant 명령 재실행
+    # 전부 끝나면: ... --verdict  /  ... --table (benchmarks 표 교체)
+    # 실험 종료 후 되돌리기: docker compose -f deploy/docker-compose.yml up -d api worker   (기본 env — 캐시 on, 승격 on, 생산 프롬프트, 골든셋 300)
+    ```
+  - 채택 시: `translate-main.st` 교체 → `score_db.py --prompt-version <new> --save-baseline` → cost-model 프롬프트
+    오버헤드 행(448·700 tok) 실측 교체 → README/presentation의 `main-d5ac24e9` 갱신 → ADR-013. 미채택 시 결과만 기록.
 
 ### 5.2 M2.5 완료 기록
 
@@ -323,7 +349,7 @@ M2.5처럼 계획 중간에 삽입한 마일스톤. 계기는 AI 엔지니어링
 1. KB 정조 교체 기동, 코드 0줄 — ✅ 라이브 (`jeongjo-2abe1183`, 蔡濟恭 링크)
 2. NER 규칙 교체 + 품질 차이 수치 — ✅ 골든셋 recall 26.9% vs ONNX 100% (`NER_MODE=rule` 라이브 E2E)
 3. 모델 3종 설정 교체 — ✅ flash-lite·3.5-flash 라이브 200 (gemma-4는 라우팅 성공·응답은 혼잡 무응답 — 실측된 provider 특성, 교체 경로는 동일)
-4. REJECTED 검출 + 상위 티어 승격 + 오탐률 측정 — 게이트·승격 경로 구현 + 단위 테스트, 오탐률 3.9% 실측 ✅. **단, 라이브 REJECTED 자연 발생은 아직 미관측** (기준선 인명 재현율 99.09%라 드묾 — 운영 중 시계열로 확인)
+4. REJECTED 검출 + 상위 티어 승격 + 오탐률 측정 — 게이트·승격 경로 구현 + 단위 테스트, 오탐률 3.9% 실측 ✅. **라이브 REJECTED 자연 발생은 2026-09-21 관측** (M3.5-S2 ablation 중 兪榥→유황 누락 → 3.5-flash 승격 → VERIFIED, §5.4)
 5. compose 전 스택 기동 — ✅ 라이브 (5컨테이너, 컨테이너 파이프라인 E2E SUCCEEDED. 이미지: api 604MB / worker 600MB / ner 973MB)
 6. 골든셋 채점 DB 직결 + 비열등 임계 판정 — ✅ `score_db.py` (위반 시 exit 1). **CI 스케줄 연결은 결과 DB가 생기는 배포(M6) 이후** — ci.yml 주석에 명시
 

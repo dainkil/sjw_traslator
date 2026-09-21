@@ -15,6 +15,7 @@
   - 결정: 통과한 변형 중 tokens_in 중앙값 최소를 채택. 통과 없음 → V0 유지("측정했고 안 바꿨다").
   - 캐시: 워커는 CACHE_L1_ENABLED=false CACHE_L2_ENABLED=false로 — 같은 프롬프트의 2·3라운드가 L1 히트로 LLM을
     건너뛰면 분산이 0이 되고, 실험 결과가 생산 캐시에 들어가서도 안 된다.
+  - 모델 고정: TIER_UP_ENABLED=false. 배치 예산은 n의 2배(429 재시도 여유) — 예산은 안전장치지 측정 변수가 아니다.
   - self-check: DB 행의 prompt_version이 이 스크립트가 파일 바이트로 계산한 값(Java와 같은 SHA-256[:8])과 다르면
     배치를 pause하고 exit 2 — 워커가 다른 프롬프트로 떠 있다는 뜻이다.
 
@@ -23,12 +24,17 @@
   1. ...                                                       --dry-run     # 기대 prompt_version, 호출 수
   2. 이미지 재빌드 + api를 골든셋 60으로:
        SJW_EVAL_CORPUS=/eval/eval60_stratified.json docker compose -f deploy/docker-compose.yml up -d --build api worker
-  3. 변형마다 워커 재기동 → 실행 (V0 먼저):
-       CACHE_L1_ENABLED=false CACHE_L2_ENABLED=false docker compose -f deploy/docker-compose.yml up -d worker
+  3. 변형마다 워커 재기동 → 실행 (V0 먼저). 캐시 off + **품질 승격 off**(TIER_UP_ENABLED=false):
+       CACHE_L1_ENABLED=false CACHE_L2_ENABLED=false TIER_UP_ENABLED=false \
+         docker compose -f deploy/docker-compose.yml up -d worker
        ...                                                     --variant v0
        PROMPT_TEMPLATE=file:/eval/prompts/v1-no-persona.st CACHE_L1_ENABLED=false CACHE_L2_ENABLED=false \
-         docker compose -f deploy/docker-compose.yml up -d worker
+         TIER_UP_ENABLED=false docker compose -f deploy/docker-compose.yml up -d worker
        ...                                                     --variant v1
+     승격을 끄는 이유: REJECTED 문장을 3.5-flash가 다시 번역하면 표본에 두 모델이 섞이고, 이름을 떨어뜨리는
+     프롬프트일수록 상위 모델이 구제해 효과가 가려진다. 게이트 판정 자체는 그대로 돌아 라운드별 REJECTED 수가
+     남는다 — 그것이 "이 프롬프트가 확정 인명을 얼마나 떨어뜨리나"의 직접 신호다. (v0 1차 시도에서 실제로
+     REJECTED 1건 → 승격 1회로 예산 60이 59건에서 소진됐다 — REJECTED의 첫 라이브 자연 발생.)
   4. ...                                                       --verdict
   5. 되돌리기: docker compose -f deploy/docker-compose.yml up -d api worker   (기본 env — 캐시 on, 생산 프롬프트)
 quota: 변형 6 × 3라운드 × 60 = 1,080회 (flash-lite RPD 500 → 3일). 완료된 라운드는 eval/prompt_ablation.json에
@@ -164,12 +170,23 @@ def http(method, path, body=None):
 
 
 def submit_batch(n: int) -> str:
-    code, body = http("POST", "/api/v1/batches", {"offset": 0, "limit": n, "budgetLimitCalls": n})
+    # 예산 = 2n: 재시도 1회까지 흡수. n으로 두면 재호출 1건에 배치가 BUDGET_EXHAUSTED로 멈춘다 (v0 1차 시도)
+    code, body = http("POST", "/api/v1/batches", {"offset": 0, "limit": n, "budgetLimitCalls": 2 * n})
     if code != 202:
         print(f"배치 생성 실패 HTTP {code}: {body} — api가 SJW_EVAL_CORPUS=/eval/{SAMPLE_PATH.name}로 떠 있는지, "
               f"테넌트 일일 상한(429)인지 확인", file=sys.stderr)
         sys.exit(2)
     return body["batchId"]
+
+
+def db_grades(conn, batch_id):
+    """라운드의 게이트 등급·모델 분포 — 승격 off이므로 REJECTED가 그대로 남고, 모델은 한 종류여야 한다."""
+    grades = dict(conn.execute(
+        "SELECT quality_grade, count(*) FROM translation_job WHERE batch_id = %s::uuid AND status = 'SUCCEEDED' GROUP BY 1",
+        (batch_id,)).fetchall())
+    models = [r[0] for r in conn.execute(
+        "SELECT DISTINCT model_used FROM translation_job WHERE batch_id = %s::uuid AND status = 'SUCCEEDED'", (batch_id,)).fetchall()]
+    return {"grades": grades, "models": models}
 
 
 def db_prompt_versions(conn, batch_id):
@@ -224,7 +241,12 @@ def score_batch(conn, batch_id: str, expected_version: str) -> dict:
         print(f"채점 불가: 매칭 {len(items)}건", file=sys.stderr)
         sys.exit(2)
     sc = score_db.score_items(items, gt)
-    return {k: (round(v, 4) if isinstance(v, float) else v) for k, v in sc.items() if not k.startswith("_")}
+    out = {k: (round(v, 4) if isinstance(v, float) else v) for k, v in sc.items() if not k.startswith("_")}
+    out.update(db_grades(conn, batch_id))
+    if len(out["models"]) != 1:
+        print(f"self-check 실패: 모델이 섞였다 {out['models']} — TIER_UP_ENABLED=false로 워커를 띄웠는지 확인", file=sys.stderr)
+        sys.exit(2)
+    return out
 
 
 # ── 실행 ────────────────────────────────────────────────────────────────
@@ -279,7 +301,7 @@ def run_variant(v: str, rounds: int):
             save_state(st)
             s = rec["scores"]
             print(f"  라운드 {rec['round']} 완료: n={s['n']} chrF {s['chrf']:.2f} 반영률 {s['confirmed_name_recall']:.4f} "
-                  f"ETS {s['ets']:.4f} tokens_in {s['mean_tokens_in']:.1f}")
+                  f"ETS {s['ets']:.4f} tokens_in {s['mean_tokens_in']:.1f} 등급 {s['grades']}")
 
     if v == "v0" and st["tolerances"] is None:
         ets_vals = [r["scores"]["ets"] for r in entry["rounds"] if r["status"] == "COMPLETED"]
@@ -326,11 +348,67 @@ def verdict():
         if v != "v0" and ok:
             passing.append((m["mean_tokens_in"], v))
     chosen = min(passing)[1] if passing else None
-    st["verdict"] = {"at": now(), "tolerances": tol, "rows": rows, "chosen": chosen,
-                     "rule": "통과 변형 중 tokens_in 중앙값 최소. 통과 없음 → v0 유지."}
+    unmeasured = [v for v in variants() if medians(st["variants"].get(v, {"rounds": []})) is None]
+    complete = not unmeasured
+    st["verdict"] = {"at": now(), "complete": complete, "unmeasured": unmeasured, "tolerances": tol, "rows": rows,
+                     "chosen": chosen if complete else None, "interim_leader": chosen,
+                     "rule": "통과 변형 중 tokens_in 중앙값 최소. 통과 없음 → v0 유지. 전 변형 3라운드 전에는 중간 판정."}
     save_state(st)
-    print("\n채택: " + (f"{chosen} ({st['variants'][chosen]['template']}, {st['variants'][chosen]['prompt_version']})"
-                      if chosen else "없음 — V0 유지 (측정했고 안 바꿨다)"))
+    label = "채택" if complete else f"중간 선두 (미측정: {', '.join(unmeasured)} — 최종 아님)"
+    print(f"\n{label}: " + (f"{chosen} ({st['variants'][chosen]['template']}, {st['variants'][chosen]['prompt_version']})"
+                           if chosen else "없음 — V0 유지 (측정했고 안 바꿨다)"))
+
+
+def drop_batch(batch_id: str, reason: str):
+    """미완료 라운드를 폐기 목록으로 옮긴다 (기록은 남긴다 — 왜 버렸는지가 결과의 일부다)."""
+    st = load_state()
+    for v, entry in st["variants"].items():
+        for r in list(entry["rounds"]):
+            if r["batch_id"] == batch_id:
+                if r["status"] == "COMPLETED":
+                    print("완료된 라운드는 버리지 않는다", file=sys.stderr)
+                    sys.exit(2)
+                entry["rounds"].remove(r)
+                for i, rr in enumerate(entry["rounds"], 1):
+                    rr["round"] = i
+                st.setdefault("discarded", []).append({**r, "variant": v, "reason": reason, "dropped_at": now()})
+                save_state(st)
+                print(f"폐기: {v} batch {batch_id} — {reason}")
+                return
+    print("그런 batch가 없다", file=sys.stderr)
+    sys.exit(2)
+
+
+def table():
+    """docs/benchmarks.md에 붙일 마크다운 표 — 라운드별 원자료 + 중앙값. 숫자를 손으로 옮기지 않는다."""
+    st = load_state()
+    base = medians(st["variants"].get("v0", {"rounds": []}))
+    print("| 변형 | 파일 | prompt_version | 라운드 chrF | chrF 중앙값 (Δ) | 반영률 | ETS | tokens_in (Δ%) | 등급 V/D/R | 판정 |")
+    print("|---|---|---|---|---|---|---|---|---|---|")
+    tol = st.get("tolerances") or {}
+    for v, entry in sorted(st["variants"].items()):
+        rs = [r["scores"] for r in entry["rounds"] if r["status"] == "COMPLETED"]
+        m = medians(entry)
+        chrfs = " / ".join(f"{r['chrf']:.2f}" for r in rs) or "—"
+        if m is None or base is None:
+            print(f"| {v} | `{Path(entry['template']).name}` | `{entry['prompt_version']}` | {chrfs} | (라운드 {len(rs)}/{ROUNDS}) | | | | | 미완 |")
+            continue
+        d = {k: m[k] - base[k] for k in m}
+        g = rs[0].get("grades", {})
+        grades = f"{g.get('VERIFIED', 0)}/{g.get('DEGRADED', 0)}/{g.get('REJECTED', 0)}"
+        if v == "v0":
+            tag = "대조군"
+        else:
+            ok = (d["chrf"] >= -tol.get("chrf", CHRF_TOLERANCE) and d["confirmed_name_recall"] >= -tol.get("confirmed_name_recall", 0)
+                  and d["ets"] >= -tol.get("ets", 0))
+            tag = "통과" if ok else "위반"
+        print(f"| {v} | `{Path(entry['template']).name}` | `{entry['prompt_version']}` | {chrfs} | **{m['chrf']:.2f}** ({d['chrf']:+.2f}) "
+              f"| {m['confirmed_name_recall']:.4f} ({d['confirmed_name_recall']:+.4f}) | {m['ets']:.4f} ({d['ets']:+.4f}) "
+              f"| {m['mean_tokens_in']:.1f} ({100*d['mean_tokens_in']/base['mean_tokens_in']:+.1f}%) | {grades} | {tag} |")
+    if st.get("discarded"):
+        print()
+        for r in st["discarded"]:
+            print(f"- 폐기: {r['variant']} batch `{r['batch_id']}` — {r['reason']}")
 
 
 def dry_run():
@@ -351,6 +429,9 @@ def main():
     g.add_argument("--dry-run", action="store_true")
     g.add_argument("--variant", help="이 변형의 남은 라운드를 돈다 (v0 먼저)")
     g.add_argument("--verdict", action="store_true")
+    g.add_argument("--drop-batch", metavar="BATCH_ID", help="미완료 라운드 폐기 (--reason 필수)")
+    g.add_argument("--table", action="store_true", help="benchmarks용 마크다운 표")
+    ap.add_argument("--reason", help="--drop-batch 사유")
     ap.add_argument("--rounds", type=int, default=ROUNDS)
     ap.add_argument("--n", type=int, default=N, help="--make-sample 표본 크기")
     ap.add_argument("--seed", type=int, default=SEED)
@@ -361,6 +442,12 @@ def main():
         dry_run()
     elif a.variant:
         run_variant(a.variant, a.rounds)
+    elif a.table:
+        table()
+    elif a.drop_batch:
+        if not a.reason:
+            ap.error("--drop-batch에는 --reason이 필요하다")
+        drop_batch(a.drop_batch, a.reason)
     else:
         verdict()
 
