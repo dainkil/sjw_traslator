@@ -10,7 +10,12 @@ import org.junit.jupiter.api.Test;
 class ModelRegistryTest {
 
     private static ModelSpec spec(String id, String in, String out) {
-        return new ModelSpec(id, "google-genai", "T0", null,
+        return spec(id, in, out, null);
+    }
+
+    /** rpm은 실측값만 들어간다 — 미실측이면 null (원칙 4). */
+    private static ModelSpec spec(String id, String in, String out, Integer rpm) {
+        return new ModelSpec(id, "google-genai", "T0", null, rpm,
                 new BigDecimal(in), new BigDecimal(out));
     }
 
@@ -18,6 +23,24 @@ class ModelRegistryTest {
             "flash-lite", new BigDecimal("1400"),
             List.of(spec("flash", "0.30", "2.50"), spec("flash-lite", "0.10", "0.40"),
                     spec("gemma", "0", "0")));
+
+    @Test
+    void 실측_rpm은_있는_모델만_돌려준다() {
+        var withRpm = new LlmProperties("a", new BigDecimal("1400"),
+                List.of(spec("a", "0.1", "0.4", 15), spec("b", "0.1", "0.4")));
+        ModelRegistry reg = new ModelRegistry(withRpm);
+
+        assertEquals(15, reg.measuredRpm("a").orElseThrow());
+        // 미실측 모델과 미등록 모델은 구별 없이 empty — 호출자는 둘 다 전역 기본값으로 탐색한다
+        assertEquals(java.util.Optional.empty(), reg.measuredRpm("b"));
+        assertEquals(java.util.Optional.empty(), reg.measuredRpm("등록되지-않은-모델"));
+    }
+
+    @Test
+    void rpm이_0이하면_기동을_막는다() {
+        assertThrows(IllegalArgumentException.class,
+                () -> spec("a", "0.1", "0.4", 0));
+    }
 
     @Test
     void activeModelResolvesFromRegistry() {

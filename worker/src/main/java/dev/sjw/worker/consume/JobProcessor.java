@@ -12,6 +12,8 @@ import dev.sjw.common.job.JobStatus;
 import dev.sjw.common.job.TranslationJobRepository;
 import dev.sjw.common.llm.TranslatorFactory;
 import dev.sjw.common.quality.QualityGate;
+import dev.sjw.common.routing.ModelAllocator;
+import dev.sjw.common.routing.TierRouter;
 import dev.sjw.common.quality.QualityGrade;
 import dev.sjw.common.queue.QueueKeys;
 import dev.sjw.common.tenant.Tenant;
@@ -71,6 +73,8 @@ public class JobProcessor {
     private final AdaptiveRateLimiter rateLimiter;
     private final QualityGate qualityGate;
     private final TranslationCache cache;
+    private final TierRouter tierRouter;
+    private final ModelAllocator allocator;
     private final TranslatorFactory translatorFactory;
     private final MeterRegistry meters;
     private final boolean tierUpEnabled;
@@ -82,7 +86,8 @@ public class JobProcessor {
                         BatchJobRepository batches, TranslationService translationService,
                         FailureClassifier classifier, DlqPublisher dlq,
                         AdaptiveRateLimiter rateLimiter, QualityGate qualityGate,
-                        TranslationCache cache, TranslatorFactory translatorFactory,
+                        TranslationCache cache, TierRouter tierRouter, ModelAllocator allocator,
+                        TranslatorFactory translatorFactory,
                         MeterRegistry meters,
                         @Value("${sjw.quality.tier-up-enabled:true}") boolean tierUpEnabled,
                         @Value("${sjw.quality.tier-up-model:gemini-3.5-flash}") String tierUpModel) {
@@ -95,6 +100,8 @@ public class JobProcessor {
         this.rateLimiter = rateLimiter;
         this.qualityGate = qualityGate;
         this.cache = cache;
+        this.tierRouter = tierRouter;
+        this.allocator = allocator;
         this.translatorFactory = translatorFactory;
         this.meters = meters;
         this.tierUpEnabled = tierUpEnabled;
@@ -153,9 +160,8 @@ public class JobProcessor {
             }
         }
 
-        String model = translationService.model();
+        String baseModel = translationService.model();
         String tenant = job.tenantId() == null ? Tenant.DEFAULT_ID : job.tenantId();
-        String bucket = QueueKeys.rateScope(tenant, model); // rate·quota는 테넌트x모델 단위 (D10)
         // 전처리(NER+링킹+조립)는 permit 밖 — 무료·수십 ms라 페이싱 대상이 아니고,
         // NER 장애가 버킷 토큰을 태우거나 LLM 재시도가 NER를 반복 호출하는 것을 막는다
         TranslationService.Prepared prep;
@@ -182,10 +188,26 @@ public class JobProcessor {
             }
         }
 
+        // 난이도 티어 판정 (§5.1) — LLM 호출 전에 이미 계산된 신호만 쓰므로 추가 비용 0이다.
+        // 티어는 난이도 축이고, 어느 모델로 갈지는 quota를 보는 배정기가 따로 정한다 (ADR-010).
+        TierRouter.Decision tier = tierRouter.classify(job.sourceText(), prep.entities());
+        meters.counter("translation.tier.distribution", "tier", tier.tier().name()).increment();
+        jobs.updateTier(jobId, tier.tier().name());
+        ModelAllocator.Allocation alloc = allocator.allocate(tier.tier(), baseModel);
+        if (alloc.downgraded()) {
+            log.info("job {} {} 강등: {}", jobId, tier.tier(), alloc.reason());
+        } else if (!alloc.modelId().equals(baseModel)) {
+            log.info("job {} {} → {} ({})", jobId, tier.tier(), alloc.modelId(), tier.reason());
+        }
+        String model = alloc.modelId();
+        String bucket = QueueKeys.rateScope(tenant, model); // rate·quota는 테넌트x모델 단위 (D10)
+
         Callable<TranslationResponse> guarded = () -> {
             rateLimiter.acquire(bucket); // 버킷이 비어 있으면 여기서 대기 — 이것이 워커의 페이싱이다
             try {
-                TranslationResponse r = translationService.translate(prep);
+                TranslationResponse r = model.equals(baseModel)
+                        ? translationService.translate(prep)
+                        : translationService.translate(prep, translatorFactory.forModel(model));
                 rateLimiter.onSuccess(bucket);
                 return r;
             } catch (Exception e) {
@@ -336,6 +358,12 @@ public class JobProcessor {
                                           String primaryModel, String tenant,
                                           QualityGate.Verdict verdict) {
         if (!tierUpEnabled || tierUpModel == null || tierUpModel.equals(primaryModel)) {
+            return null;
+        }
+        // 승격도 상위 모델 quota의 문을 지난다 (ADR-010). 실측 REJECTED율 4.36%는 그 quota의
+        // 135배여서, 문이 없으면 승격이 quota를 즉시 태우고 이후의 모든 승격이 실패한다.
+        if (allocator.reserveForPromotion(primaryModel).isEmpty()) {
+            log.info("job {} REJECTED이지만 상위 모델 quota 소진 — 승격 없이 등급으로 격리", jobId);
             return null;
         }
         String bucket = QueueKeys.rateScope(tenant, tierUpModel);

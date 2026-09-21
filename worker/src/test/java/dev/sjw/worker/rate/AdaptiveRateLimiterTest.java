@@ -203,10 +203,72 @@ class AdaptiveRateLimiterTest {
         assertTrue(elapsed < 3000, "상한 근처에서 포기해야 함: " + elapsed);
     }
 
+    // --- 모델별 실측 RPM (M4-S1) ---
+
+    @Test
+    void 실측_rpm이_있으면_전역_탐색_경계를_대체한다() {
+        // 전역 설정은 20에서 출발해 60까지 탐색하지만, 이 모델은 15로 실측돼 있다
+        var limiter = limiter(props(20, 2, 60, 10, 0.5, 5, 1, 10_000), 15);
+        String bucket = scoped("측정모델");
+
+        limiter.tryAcquire(bucket);                       // 버킷을 실제로 생성한다
+        // Lua가 받은 경계가 반영됐는지 본다 — Java 폴백이 아니라 저장된 상태를 확인
+        assertEquals(15, limiter.snapshot(bucket).rpm(),
+                "실측 한도가 있는데 전역 시작점 20으로 출발하면 기동마다 429를 한 번 산다");
+    }
+
+    @Test
+    void 미실측_모델은_전역_기본값으로_탐색한다() {
+        var limiter = limiter(props(20, 2, 60, 10, 0.5, 5, 1, 10_000), 15);
+        String bucket = scoped("미측정모델");
+
+        limiter.tryAcquire(bucket);
+
+        assertEquals(20, limiter.snapshot(bucket).rpm(),
+                "실측이 없으면 AIMD가 탐색해야 한다 — 그게 ADR-017의 원래 설계다");
+    }
+
+    @Test
+    void 실측_rpm이_상한이라_성공만_계속돼도_그_위로_오르지_않는다() {
+        var limiter = limiter(props(20, 2, 60, 10, 0.5, 2, 1, 10_000), 15);
+        String bucket = scoped("측정모델");
+        limiter.tryAcquire(bucket);
+
+        for (int i = 0; i < 20; i++) {
+            limiter.onSuccess(bucket);                    // AI가 계속 발동해도
+        }
+
+        assertEquals(15, limiter.snapshot(bucket).rpm(),
+                "실측 한도가 상한이다 — 전역 max 60까지 올라가면 429를 부른다");
+    }
+
+    @Test
+    void 실측_rpm이_하한보다_낮으면_하한을_존중한다() {
+        // 0 RPM은 진행 불가다 — 실측이 하한 밑이면 하한이 이긴다
+        var limiter = limiter(props(20, 5, 60, 10, 0.5, 5, 1, 10_000), 1);
+        String bucket = scoped("측정모델");
+
+        limiter.tryAcquire(bucket);
+
+        assertEquals(5, limiter.snapshot(bucket).rpm());
+    }
+
     // --- 헬퍼 ---
 
     private AdaptiveRateLimiter limiter(RateLimitProperties cfg) {
-        return new AdaptiveRateLimiter(redis, cfg, new SimpleMeterRegistry());
+        return limiter(cfg, null);
+    }
+
+    /** measuredRpm이 있으면 그 값이 시작점·상한이 된다 (M4-S1). null이면 전역 기본값 탐색. */
+    private AdaptiveRateLimiter limiter(RateLimitProperties cfg, Integer measuredRpm) {
+        var specs = new java.util.ArrayList<dev.sjw.common.llm.ModelSpec>();
+        specs.add(new dev.sjw.common.llm.ModelSpec("측정모델", "google-genai", "T0", null,
+                measuredRpm, java.math.BigDecimal.ZERO, java.math.BigDecimal.ZERO));
+        specs.add(new dev.sjw.common.llm.ModelSpec("미측정모델", "google-genai", "T0", null,
+                null, java.math.BigDecimal.ZERO, java.math.BigDecimal.ZERO));
+        var registry = new dev.sjw.common.llm.ModelRegistry(new dev.sjw.common.llm.LlmProperties(
+                "측정모델", java.math.BigDecimal.ONE, specs));
+        return new AdaptiveRateLimiter(redis, cfg, registry, new SimpleMeterRegistry());
     }
 
     private static RateLimitProperties props(int initialRpm, int minRpm, int maxRpm, int burstSeconds,
@@ -214,6 +276,16 @@ class AdaptiveRateLimiterTest {
                                              int increaseStep, long maxWaitMs) {
         return new RateLimitProperties(initialRpm, minRpm, maxRpm, burstSeconds,
                 decreaseFactor, successesToIncrease, increaseStep, maxWaitMs);
+    }
+
+    /**
+     * 실측 RPM 조회는 버킷 스코프를 {@code {tenant}:{model}}로 파싱한다 —
+     * 모델 id가 레지스트리와 일치해야 하므로 테넌트만 난수로 만들어 키를 격리한다.
+     */
+    private String scoped(String modelId) {
+        String b = "t-" + UUID.randomUUID() + ":" + modelId;
+        usedModels.add(b);
+        return b;
     }
 
     /** 테스트마다 새 버킷 키 — 잔여 상태가 다음 테스트로 새지 않게. */

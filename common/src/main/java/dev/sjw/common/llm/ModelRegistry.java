@@ -49,6 +49,18 @@ public class ModelRegistry {
         return List.copyOf(byId.values());
     }
 
+    /**
+     * 모델의 실측 분당 quota. 레지스트리에 없는 모델이거나 미실측이면 empty —
+     * 호출자는 그 경우 전역 탐색 기본값으로 되돌아간다 (M4-S1).
+     *
+     * <p>레지스트리를 거쳐 조회하는 이유: rate 버킷 키가 {@code {tenant}:{model}}이라
+     * 리미터가 받는 것은 모델 id 문자열뿐이고, 그 id가 등록되지 않은 값일 수도 있다.
+     */
+    public java.util.Optional<Integer> measuredRpm(String modelId) {
+        ModelSpec m = byId.get(modelId);
+        return java.util.Optional.ofNullable(m == null ? null : m.rpm());
+    }
+
     /** 토큰 수가 null(응답 메타 소실)이면 0으로 계산 — 원장에 행은 반드시 남긴다. */
     public Cost cost(String modelId, Integer tokensIn, Integer tokensOut) {
         ModelSpec m = require(modelId);

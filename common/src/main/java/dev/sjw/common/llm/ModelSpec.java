@@ -10,6 +10,8 @@ import java.math.BigDecimal;
  * @param provider 어댑터 선택 키 (현재 google-genai 하나, ADR-018)
  * @param tier     M4 티어 라우팅용 (T0 저가 워크호스 / T1 고품질)
  * @param rpd      무료 일일 quota. 실측된 값만 기입한다 — 미실측이면 null (원칙 4)
+ * @param rpm      무료 분당 quota. 같은 규칙 — 실측만. 적응형 리미터의 탐색 상한·시작점이 된다
+ *                 (M4-S1: 전역 상수 하나로는 모델별 한도를 담을 수 없다. 429 응답의 quotaValue로 실측)
  * @param unitPriceInUsdPerMtok  counterfactual 유료 단가 (입력, USD/1M tok). 유료 제공이 없는 모델은 0
  * @param unitPriceOutUsdPerMtok counterfactual 유료 단가 (출력)
  */
@@ -18,6 +20,7 @@ public record ModelSpec(
         String provider,
         String tier,
         Integer rpd,
+        Integer rpm,
         BigDecimal unitPriceInUsdPerMtok,
         BigDecimal unitPriceOutUsdPerMtok) {
 
@@ -27,6 +30,9 @@ public record ModelSpec(
         }
         if (unitPriceInUsdPerMtok == null || unitPriceOutUsdPerMtok == null) {
             throw new IllegalArgumentException("단가는 필수 (유료 제공이 없으면 0으로 명시): " + id);
+        }
+        if (rpm != null && rpm < 1) {
+            throw new IllegalArgumentException("rpm은 1 이상이어야 함 (미실측이면 비워둘 것): " + id);
         }
     }
 }

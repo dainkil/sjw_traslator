@@ -30,4 +30,15 @@ public final class QueueKeys {
     public static String budgetDaily(String tenantId, String yyyyMmDd) {
         return "budget:daily:" + tenantId + ":" + yyyyMmDd;
     }
+
+    /**
+     * provider 일일 quota 예약 카운터 (M4-S1, ADR-010). <b>테넌트가 들어가지 않는다</b> —
+     * 무료 quota는 프로젝트×모델 단위라(429 응답의 {@code quotaId}가
+     * {@code ...PerProjectPerModel-FreeTier}) 테넌트별로 쪼개면 합계가 한도를 넘는다.
+     * {@link #budgetDaily}와 다른 축이다: 그쪽은 "테넌트가 쓸 수 있는 양", 이쪽은
+     * "provider가 허용하는 양".
+     */
+    public static String providerQuotaDaily(String model, String yyyyMmDd) {
+        return "quota:daily:" + model + ":" + yyyyMmDd;
+    }
 }

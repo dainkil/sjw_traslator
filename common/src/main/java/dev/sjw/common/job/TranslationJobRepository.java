@@ -98,6 +98,16 @@ public class TranslationJobRepository {
                 .update();
     }
 
+    /**
+     * 난이도 티어 기록 (§8.2 컬럼, M4-S1). LLM 호출 전에 쓴다 —
+     * 실패한 job에도 남아야 §9.1 {@code translation.tier.distribution}과 원장 대조가 성립한다.
+     */
+    public void updateTier(UUID id, String tier) {
+        jdbc.sql("UPDATE translation_job SET tier = ? WHERE id = ?")
+                .params(tier, id)
+                .update();
+    }
+
     public void markFailed(UUID id, JobStatus status, String errorClass) {
         jdbc.sql("UPDATE translation_job SET status = ?, error_class = ?, completed_at = now() WHERE id = ?")
                 .params(status.name(), errorClass, id)

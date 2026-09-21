@@ -33,11 +33,14 @@ sjw:
         provider: google-genai
         tier: T1
         rpd: 20                         # 실측 (docs/benchmarks.md, PerDayPerProjectPerModel)
+        # rpm 미실측 — RPD 20이라 분당 한도에 닿기 전에 일일 quota가 먼저 소진된다
         unit-price-in-usd-per-mtok: 0.30   # counterfactual — 2.5 Flash 공시가를 proxy로 사용 (추정)
         unit-price-out-usd-per-mtok: 2.50
       - id: gemini-3.1-flash-lite
         provider: google-genai
         tier: T0
+        rpd: 500                        # 실측 (M3-S5, 429 quotaValue PerDayPerProjectPerModel-FreeTier)
+        rpm: 15                         # 실측 (M3-S5, 429 quotaValue PerMinutePerProjectPerModel-FreeTier)
         unit-price-in-usd-per-mtok: 0.10   # counterfactual — 2.5 Flash-Lite 공시가 proxy (추정)
         unit-price-out-usd-per-mtok: 0.40
       - id: gemma-4-26b-a4b-it
@@ -61,6 +64,17 @@ sjw:
       # 꺼져 있어도 job.template_hash는 기록된다 — S4 히트율 시뮬레이션의 입력이다.
       enabled: ${CACHE_L2_ENABLED:false}
       ttl-days: 30
+  routing:
+    # M4 NER 비용 라우팅 (§5.1, ADR-010). **기본 off, 명시 opt-in** — 어느 모델이 번역하는지
+    # 바꾸는 기능이므로 M4 수용 기준(on/off 비용·품질 곡선)을 통과해야 켠다.
+    #
+    # 티어는 난이도 축이고 모델 배정은 quota 축이다. 실측(M4-S1, 전수 62,056문장):
+    #   T0 13.02% / T1 85.15% / T2 1.83%  ← T2만 상위 모델을 노린다
+    # 계획서 원안(T2 = MISS 또는 모호)은 T2가 29.86%가 되어 상위 모델 quota(RPD 20 = 전체의 3.8%)를
+    # 8배 초과했다. 그렇게 켜면 완역이 124일 → 926일로 늘어난다. MISS를 T2에서 뺀 근거는
+    # quota만이 아니다 — 역색인에 없는 인물은 모델을 올려도 알게 되지 않는다.
+    enabled: ${ROUTING_ENABLED:false}
+    upper-model: ${ROUTING_UPPER_MODEL:gemini-3.5-flash}   # RPD 20 실측 — 희소 자원이다
   ner:
     url: ${NER_URL:http://localhost:8100}
     mode: ${NER_MODE:http}   # http(ONNX 서버, 운영) | rule(규칙 축소판 — degrade/A/B)

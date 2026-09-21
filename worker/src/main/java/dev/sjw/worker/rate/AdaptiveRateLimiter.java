@@ -1,5 +1,6 @@
 package dev.sjw.worker.rate;
 
+import dev.sjw.common.llm.ModelRegistry;
 import dev.sjw.common.queue.QueueKeys;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -30,6 +31,12 @@ import org.springframework.stereotype.Component;
  * docs/troubleshooting.md §2·§3). 그래서 "정확한 상수"를 찾는 대신 429를 피드백 신호로 삼아
  * 절반으로 줄이고(즉시 회피), 연속 성공으로 1씩 올린다(조심스러운 재탐색). 감소는 크고 증가는
  * 작은 비대칭이 재진입 발진을 막는다.
+ *
+ * <p><b>실측 한도가 있으면 그것을 쓴다 (M4-S1).</b> 버킷은 모델별인데 탐색 경계는 전역 상수
+ * 하나였다 — 그래서 실측 RPM 15인 모델도 20에서 출발해 기동마다 429를 한 번 사서 배웠고,
+ * 상한 60은 실측의 4배였다. 레지스트리에 모델의 {@code rpm}이 실측돼 있으면 그 값을
+ * <b>시작점과 상한</b>으로 쓰고, 없는 모델만 전역 기본값으로 탐색한다. AIMD는 그대로 남는다 —
+ * 실측값도 provider가 바꿀 수 있고, 그때 스스로 내려오는 것이 이 설계의 요점이다.
  */
 @Component
 public class AdaptiveRateLimiter {
@@ -50,6 +57,7 @@ public class AdaptiveRateLimiter {
 
     private final StringRedisTemplate redis;
     private final RateLimitProperties cfg;
+    private final ModelRegistry models;
     private final MeterRegistry meters;
     private final RedisScript<List> acquireScript = load("rate/acquire.lua");
     private final RedisScript<List> feedbackScript = load("rate/feedback.lua");
@@ -58,10 +66,28 @@ public class AdaptiveRateLimiter {
     private final Map<String, Timer> waitTimers = new ConcurrentHashMap<>();
 
     public AdaptiveRateLimiter(StringRedisTemplate redis, RateLimitProperties cfg,
-                               MeterRegistry meters) {
+                               ModelRegistry models, MeterRegistry meters) {
         this.redis = redis;
         this.cfg = cfg;
+        this.models = models;
         this.meters = meters;
+    }
+
+    /**
+     * 이 버킷의 탐색 경계 — 실측값이 있으면 그것이 시작점이자 상한이다.
+     *
+     * <p>버킷 스코프는 {@code {tenant}:{model}}이므로 첫 {@code :} 뒤가 모델 id다
+     * ({@link QueueKeys#rateScope}). 등록되지 않은 모델이나 미실측 모델은 전역 기본값으로 탐색한다.
+     */
+    private int[] bounds(String bucket) {
+        int sep = bucket.indexOf(':');
+        String model = sep < 0 ? bucket : bucket.substring(sep + 1);
+        Integer rpm = models.measuredRpm(model).orElse(null);
+        if (rpm == null) {
+            return new int[] {cfg.initialRpm(), cfg.maxRpm()};
+        }
+        // 실측 한도가 하한보다 낮을 수도 있다 — 그 경우 하한을 존중한다(0 RPM은 진행 불가)
+        return new int[] {Math.max(cfg.minRpm(), rpm), Math.max(cfg.minRpm(), rpm)};
     }
 
     @SuppressWarnings("rawtypes")
@@ -74,10 +100,11 @@ public class AdaptiveRateLimiter {
 
     /** 논블로킹 획득 시도. 거절되면 {@code waitMs} 뒤에 재시도하면 된다. */
     public Decision tryAcquire(String bucket) {
+        int[] b = bounds(bucket);
         List<Long> r = exec(acquireScript, bucket,
-                String.valueOf(cfg.initialRpm()),
+                String.valueOf(b[0]),
                 String.valueOf(cfg.minRpm()),
-                String.valueOf(cfg.maxRpm()),
+                String.valueOf(b[1]),
                 String.valueOf(cfg.burstSeconds()));
         Decision d = new Decision(r.get(0) == 1L, r.get(1), r.get(2).intValue(), r.get(3) / 100.0);
         rpmGauge(bucket).set(d.rpm());
@@ -141,18 +168,19 @@ public class AdaptiveRateLimiter {
     public Snapshot snapshot(String bucket) {
         Map<Object, Object> h = redis.opsForHash().entries(QueueKeys.rateBucket(bucket));
         return new Snapshot(
-                (int) num(h.get("rpm"), cfg.initialRpm()),
+                (int) num(h.get("rpm"), bounds(bucket)[0]),
                 num(h.get("tokens"), 0),
                 (long) num(h.get("cooldown_until"), 0),
                 (int) num(h.get("streak"), 0));
     }
 
     private List<Long> feedback(String bucket, String op, long hintMs) {
+        int[] b = bounds(bucket);
         return exec(feedbackScript, bucket,
                 op,
-                String.valueOf(cfg.initialRpm()),
+                String.valueOf(b[0]),
                 String.valueOf(cfg.minRpm()),
-                String.valueOf(cfg.maxRpm()),
+                String.valueOf(b[1]),
                 String.valueOf(cfg.decreaseFactor()),
                 String.valueOf(cfg.successesToIncrease()),
                 String.valueOf(cfg.increaseStep()),
@@ -171,7 +199,7 @@ public class AdaptiveRateLimiter {
 
     private AtomicInteger rpmGauge(String bucket) {
         return rpmGauges.computeIfAbsent(bucket, m -> {
-            AtomicInteger holder = new AtomicInteger(cfg.initialRpm());
+            AtomicInteger holder = new AtomicInteger(bounds(m)[0]);
             Gauge.builder("llm.rate.rpm", holder, AtomicInteger::doubleValue)
                     .description("적응형 토큰 버킷의 현재 RPM (429 피드백으로 자가 조정)")
                     .tag("bucket", m)
