@@ -11,8 +11,13 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.prompt.PromptTemplate;
-import org.springframework.core.io.ClassPathResource;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.DefaultResourceLoader;
+import org.springframework.core.io.ResourceLoader;
 import org.springframework.stereotype.Component;
 
 /**
@@ -23,9 +28,18 @@ import org.springframework.stereotype.Component;
  * version()은 두 파일 바이트의 체크섬 파생값 — 프롬프트가 1바이트라도 바뀌면 버전이 갈리고,
  * 그 값이 job(prompt_version)과 응답 meta에 남아 회귀 비교의 기준선이 된다.
  * 패턴은 파일 순서 그대로 주입한다 — 프롬프트가 실행마다 달라지면 골든셋 회귀가 깨진다.
+ *
+ * 리소스 위치는 설정이다 (M3.5-S2: sjw.prompt.template / sjw.prompt.patterns, classpath: 또는 file:).
+ * 변형 프롬프트를 생산 경로 그대로 흘리기 위한 교체 축 — KB·NER·모델과 같은 규칙이며, 버전은 위치가
+ * 아니라 바이트에서 파생되므로 같은 내용이면 어디서 읽어도 같은 버전, 다른 내용이면 저절로 다른 버전이다.
  */
 @Component
 public class PromptAssembler {
+
+    public static final String DEFAULT_TEMPLATE = "classpath:prompts/translate-main.st";
+    public static final String DEFAULT_PATTERNS = "classpath:prompts/positive-patterns.tsv";
+
+    private static final Logger log = LoggerFactory.getLogger(PromptAssembler.class);
 
     private record PositivePattern(Pattern pattern, String phrase) {}
 
@@ -33,12 +47,25 @@ public class PromptAssembler {
     private final String template;
     private final String version;
 
+    /** 생산 기본 리소스 (테스트·서브클래스용). */
     public PromptAssembler() {
-        byte[] templateBytes = read("prompts/translate-main.st");
-        byte[] patternBytes = read("prompts/positive-patterns.tsv");
+        this(new DefaultResourceLoader(), DEFAULT_TEMPLATE, DEFAULT_PATTERNS);
+    }
+
+    @Autowired
+    public PromptAssembler(ResourceLoader resourceLoader,
+                           @Value("${sjw.prompt.template:" + DEFAULT_TEMPLATE + "}") String templateLocation,
+                           @Value("${sjw.prompt.patterns:" + DEFAULT_PATTERNS + "}") String patternsLocation) {
+        byte[] templateBytes = read(resourceLoader, templateLocation);
+        byte[] patternBytes = read(resourceLoader, patternsLocation);
         this.template = new String(templateBytes, StandardCharsets.UTF_8);
         this.positivePatterns = parsePatterns(new String(patternBytes, StandardCharsets.UTF_8));
         this.version = "main-" + checksum8(templateBytes, patternBytes);
+        if (!DEFAULT_TEMPLATE.equals(templateLocation) || !DEFAULT_PATTERNS.equals(patternsLocation)) {
+            // 기본이 아닌 리소스로 떠 있음을 로그에 남긴다 — 실험 중임을 숨기지 않는다
+            log.info("프롬프트 리소스 override: template={} patterns={} → prompt_version={}",
+                    templateLocation, patternsLocation, version);
+        }
     }
 
     /** 프롬프트 파일 체크섬 파생 버전 (예: main-1a2b3c4d). */
@@ -86,11 +113,11 @@ public class PromptAssembler {
         ));
     }
 
-    private static byte[] read(String classpath) {
+    private static byte[] read(ResourceLoader loader, String location) {
         try {
-            return new ClassPathResource(classpath).getContentAsByteArray();
+            return loader.getResource(location).getContentAsByteArray();
         } catch (IOException e) {
-            throw new UncheckedIOException("프롬프트 리소스 로드 실패: " + classpath, e);
+            throw new UncheckedIOException("프롬프트 리소스 로드 실패: " + location, e);
         }
     }
 

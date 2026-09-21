@@ -63,6 +63,12 @@ services:
       CACHE_L1_ENABLED: ${CACHE_L1_ENABLED:-true}
       CACHE_L2_ENABLED: ${CACHE_L2_ENABLED:-false}   # M3-S3 템플릿 슬롯 캐시 — opt-in
       ROUTING_ENABLED: ${ROUTING_ENABLED:-false}    # M4 티어 라우팅 — opt-in
+      # M3.5-S2 프롬프트 교체 축 + 골든셋 파일 — ../eval이 /eval에 마운트된다 (아래 volumes)
+      #   SJW_EVAL_CORPUS=/eval/eval60_stratified.json PROMPT_TEMPLATE=file:/eval/prompts/v1-no-persona.st
+      PROMPT_TEMPLATE: ${PROMPT_TEMPLATE:-classpath:prompts/translate-main.st}
+      SJW_EVAL_CORPUS: ${SJW_EVAL_CORPUS:-/app/eval/eval300_1925.json}
+    volumes:
+      - ../eval:/eval:ro
     ports:
       - "8080:8080"
     depends_on:
@@ -98,6 +104,9 @@ services:
       CACHE_L1_ENABLED: ${CACHE_L1_ENABLED:-true}
       CACHE_L2_ENABLED: ${CACHE_L2_ENABLED:-false}   # M3-S3 템플릿 슬롯 캐시 — opt-in
       ROUTING_ENABLED: ${ROUTING_ENABLED:-false}    # M4 티어 라우팅 — opt-in
+      PROMPT_TEMPLATE: ${PROMPT_TEMPLATE:-classpath:prompts/translate-main.st}   # M3.5-S2 — 변형은 file:/eval/prompts/*.st
+    volumes:
+      - ../eval:/eval:ro
     ports:
       - "8081:8081"
     depends_on:

@@ -36,3 +36,6 @@ worker/build/
 common/build/
 *.class
 build/
+
+# IDE 산출물 (VS Code/Eclipse Java)
+bin/

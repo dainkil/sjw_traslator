@@ -67,6 +67,13 @@ sjw:
     successes-to-increase: 5    # 연속 5회 성공 → +1 RPM (AIMD의 AI)
     increase-step: 1
     max-wait-ms: 120000         # permit 대기 상한. 넘으면 미ACK 재전달로 큐가 백오프를 흡수
+  prompt:
+    # M3.5-S2 프롬프트 교체 축 (ADR-013). 템플릿·패턴 파일 위치 — classpath: 또는 file:.
+    # 버전(prompt_version)은 위치가 아니라 바이트 체크섬에서 파생되므로 변형을 file:로 띄우면
+    # 저절로 다른 버전이 되고 L1/L2 캐시 키도 갈린다. 생산 기본값은 classpath 리소스.
+    #   PROMPT_TEMPLATE=file:/eval/prompts/v1-no-persona.st   (compose는 ../eval을 /eval에 마운트)
+    template: ${PROMPT_TEMPLATE:classpath:prompts/translate-main.st}
+    patterns: ${PROMPT_PATTERNS:classpath:prompts/positive-patterns.tsv}
   cache:
     # M3 L1 캐시 (ADR-009). 키에는 kb_version·prompt_version·ner_version이 들어가므로
     # 인물 사전 교체·프롬프트 개정·NER 재학습은 저절로 무효화된다 (체크섬 파생).
