@@ -610,3 +610,37 @@ M2 수용 기준 ②는 이것으로 닫힌다 — 429의 분류(RATE_LIMITED)·
 토큰 수는 문자 수 × 0.65 추정. `docker compose up -d worker`는 의존 서비스(api)를 기본 env로 재생성하므로 실험
 중엔 반드시 `--no-deps` — 이 데모를 준비하다 api가 골든셋 300으로 되돌아가 크기 탐침이 실제 배치를 만들었다
 (`83ca0bb5`, 13/61 fake 처리 후 PAUSED — 채점에서 기본 제외되므로 무해, 지워도 된다).
+
+## gemma-4 탐침 — quota가 아니라 출력 형식에서 막혔다 (M4-S2 ①, 2026-09-21)
+
+**목적.** M4-S2 선행 조건 ①: `gemma-4-26b-a4b-it`의 RPD/RPM을 429 `quotaValue`로 실측해 quota 풀의 전체 크기를 안다
+(T0의 목적지 후보). 방법은 M3-S5와 동일 — 워커(리미터 20 RPM 출발, 최대 60)로 골든셋 60 배치를 흘려 429 본문을 읽는다.
+`eval/probe_model.py --model gemma-4-26b-a4b-it` (생산 프롬프트, 캐시 off, 승격 off). 결과 정본 `eval/probe_gemma-4-26b-a4b-it.json`.
+
+**결과 (25분 상한에서 pause):** 60건 중 **SUCCEEDED 0 / FAILED 12 (전부 PARSE_ERROR) / RUNNING 1 (26분째 응답 없음) / PENDING 47.
+429 0건 → RPM·RPD 미실측.**
+
+| 관측 | 값 |
+|---|---|
+| 응답 12건의 실패 원인 | 전부 `PARSE_ERROR` — `Unexpected character ('*')`: 응답이 JSON이 아니라 **마크다운(`*`)으로 시작**. Structured Output 지시(BeanOutputConverter format)를 따르지 않는다 |
+| 토큰 | 입력 평균 788, **출력 평균 64 (0~151)** — 번역문 분량이 아니라 짧은 텍스트·빈 응답 |
+| 응답 간격 | 29 / 36 / 47 / **696** / 40 / 28 / 47 / 145 / 127 / 128 / 120초 — 평시 30~50초, 11.6분 정지 1회, 후반 2분대. 25분에 12건 = **0.5 jobs/min** |
+| 걸린 호출 | 1건이 26분째 RUNNING — 호출 측 **하드 타임아웃 부재**가 드러남 (M3-S5의 "동기 경로 실패 분류 부재"와 같은 축, 워커 쪽) |
+
+**해석.** quota 탐침이 성립하려면 처리량이 리미터 상한(60 RPM)까지 올라가야 하는데, gemma-4는 응답당 30초~2분이라
+20 RPM에도 못 미친다 — **한도에 닿기 전에 지연이 먼저 막는다.** 그리고 닿았어도 결과를 쓸 수 없다: 이 파이프라인은
+Structured Output JSON(`translatedText` + `uncertainSpans`)을 계약으로 삼는데 gemma-4는 그것을 지키지 않는다. 즉 gemma-4를
+T0 목적지로 쓰려면 **모델별 출력 모드**(평문 응답 + 결정론 추출)라는 설계 항목이 먼저 필요하고, 그 전엔 quota 크기가
+의미가 없다. ADR-010 재검토 조건 "gemma-4 등 RPD 실측 시"의 전제가 성립하지 않는다 — **M4 quota 풀은 당분간 500 + 20이다.**
+
+**따라 나온 갭 2건.** ① 워커 LLM 호출에 하드 타임아웃이 없다(26분 RUNNING). ② `FailureClassifier`는 `*`로 시작하는
+응답을 PARSE_ERROR로 정확히 분류했고 토큰은 원장에 남았다(12행, 파싱 실패 시에도 과금 회계 유지 — M2 설계대로).
+
+배치 `9a7c0edc`는 PAUSED로 둔다(gemma 결과는 채점에 안 쓰인다).
+
+**갭 ③ — 모델을 바꿔 워커를 재기동하면 pause된 배치의 재시도 메시지가 새 모델로 처리된다.** PARSE_ERROR는 재시도
+대상이라 ACK되지 않고 스트림에 남는데(at-least-once, ADR-001), 배치 pause는 펌프의 발행만 멈추지 소비를 막지 않는다.
+gemma 탐침 뒤 워커를 flash-lite(v5 프롬프트)로 되돌리자 12건이 재전달돼 4건이 flash-lite로 SUCCEEDED, 나머지는 워커를
+세우는 사이 NER_UNAVAILABLE/UNKNOWN으로 실패했다 — 한 배치 안에 두 모델·두 프롬프트가 섞였고 flash-lite 일일 quota
+4회를 썼다(499/500). 수습은 수동(pending 9건 XACK+XDEL, 미읽기 2건 XDEL). 근본 대책은 워커가 소비 전에 배치 상태를
+확인하거나 job에 모델을 고정하는 것 — M5/M6 항목으로 넘긴다. **모델 교체 재기동 전에는 `XPENDING`이 0인지 볼 것.**

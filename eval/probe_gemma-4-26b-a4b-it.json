@@ -1,0 +1,21 @@
+{
+  "model": "gemma-4-26b-a4b-it",
+  "batch_id": "9a7c0edc-6f4a-44c9-96f2-f866f26bad51",
+  "n": 60,
+  "started": "2026-09-21T13:31:02+00:00",
+  "final_status": "PAUSED(max-minutes)",
+  "wall_seconds": 1503,
+  "jobs_per_min": 0.0,
+  "job_status": {
+    "FAILED/PARSE_ERROR": 12,
+    "PENDING": 47,
+    "RUNNING": 1
+  },
+  "grades": {},
+  "quota_429": {},
+  "n_429_log_lines": 0,
+  "limiter_feedback": [],
+  "tokens_in_mean": null,
+  "tokens_out_mean": null,
+  "scores": null
+}
