@@ -30,6 +30,8 @@ score_300.py(연구 시절 jsonl CLI)의 지표를 시스템 결과(Postgres)에
   ... --prompt-version main-xxxxxxxx --save-baseline        # 프롬프트 변경 확정 시 그 버전의 결과만으로 기준선
   ... --self-check-reference                                # 전문가 번역을 가설 자리에 넣어 정답지 자체를 점검
   ... --corpus <path> --groundtruth <path>                  # 다른 골든셋 (BatchController의 sjw.eval.corpus와 같은 규칙)
+  ... --batch-id A --report [out.tsv]                       # 문장 단위 리포트 (sentence chrF 오름차순 = 나쁜 문장부터)
+  ... --batch-id A --compare-batch B --report               # A 대 B 짝 비교 — ΔchrF가 어느 문장에 몰렸는지, 어느 이름이 빠졌는지
 기준선 파일: eval/baseline_scores.json. CI(M2.5-S8)는 종료 코드로 판정한다 (위반=1, 표본 부족=2).
 """
 
@@ -160,6 +162,67 @@ def score_items(items, groundtruth) -> dict:
             "_ets": e, "_tokens": tokens}
 
 
+def sentence_rows(items, groundtruth):
+    """문장 단위 행 — corpus 집계 한 줄이 어느 문장에서 오는지 보기 위한 것. sentence chrF 오름차순."""
+    rows = []
+    for it in items:
+        hyp, names = it["hypothesis"], groundtruth.get(it["id"], [])
+        inj_miss = [e["resolvedName"] for e in it.get("entities", [])
+                    if e.get("kbId") and e.get("resolvedName") and e["resolvedName"] not in hyp]
+        rows.append({
+            "id": it["id"],
+            "chrf": sacrebleu.sentence_chrf(hyp, [it["reference"]]).score if it.get("reference") else None,
+            "ets_hit": sum(1 for n in names if n in hyp), "ets_total": len(names),
+            "ets_miss": [n for n in names if n not in hyp], "inj_miss": inj_miss,
+            "grade": it.get("grade"), "tokens_in": it.get("tokens_in"),
+            "hyp": hyp, "ref": it.get("reference", ""),
+        })
+    rows.sort(key=lambda r: (r["chrf"] is None, r["chrf"]))
+    return rows
+
+
+def write_report(rows, path, compare=None):
+    """TSV. compare가 있으면(B 배치의 id→row) B 열과 Δ를 붙이고 movers 요약을 stderr에 낸다."""
+    out = sys.stdout if path in (None, "-") else open(path, "w", encoding="utf-8")
+    cols = ["id", "chrf"] + (["chrf_b", "delta"] if compare else []) + \
+           ["ets", "ets_miss", "inj_miss", "grade", "tokens_in", "hyp", "ref"]
+    print("\t".join(cols), file=out)
+    paired = []
+    for r in rows:
+        b = compare.get(r["id"]) if compare else None
+        vals = [r["id"], f"{r['chrf']:.2f}" if r["chrf"] is not None else ""]
+        if compare:
+            d = (b["chrf"] - r["chrf"]) if (b and r["chrf"] is not None) else None
+            vals += [f"{b['chrf']:.2f}" if b else "", f"{d:+.2f}" if d is not None else ""]
+            if d is not None:
+                paired.append((d, r, b))
+        vals += [f"{r['ets_hit']}/{r['ets_total']}" if r["ets_total"] else "",
+                 " ".join(r["ets_miss"]), " ".join(r["inj_miss"]), r["grade"] or "",
+                 str(r["tokens_in"] or ""), r["hyp"][:80].replace("\t", " "), r["ref"][:80].replace("\t", " ")]
+        print("\t".join(vals), file=out)
+    if out is not sys.stdout:
+        out.close()
+    if compare and paired:
+        paired.sort()
+        total = sum(d for d, _, _ in paired)
+        worse = sum(1 for d, _, _ in paired if d < -0.5)
+        better = sum(1 for d, _, _ in paired if d > 0.5)
+        top10 = sum(d for d, _, _ in paired[:10])
+        print(f"\n짝 {len(paired)}문장: 문장 chrF Δ 합 {total:+.1f} (평균 {total / len(paired):+.2f}) — "
+              f"나빠짐(<−0.5) {worse} / 좋아짐(>+0.5) {better} / 나머지 {len(paired) - worse - better}", file=sys.stderr)
+        print(f"하위 10문장 Δ 합 {top10:+.1f} = 총 하락의 {100 * top10 / total:.0f}% (100% 초과 = 나머지 문장은 합쳐서 개선)"
+              if total < 0 else f"상위 10문장 Δ 합 {sum(d for d, _, _ in paired[-10:]):+.1f}", file=sys.stderr)
+        print("가장 나빠진 5:", file=sys.stderr)
+        for d, r, b in paired[:5]:
+            print(f"  {d:+6.2f}  {r['id']}  A={r['chrf']:.1f} B={b['chrf']:.1f}  {r['ref'][:40]}", file=sys.stderr)
+        print("가장 좋아진 5:", file=sys.stderr)
+        for d, r, b in paired[-5:][::-1]:
+            print(f"  {d:+6.2f}  {r['id']}  A={r['chrf']:.1f} B={b['chrf']:.1f}  {r['ref'][:40]}", file=sys.stderr)
+        lost = [(r["id"], n) for _, r, b in paired for n in b["ets_miss"] if n not in r["ets_miss"]]
+        gained = [(r["id"], n) for _, r, b in paired for n in r["ets_miss"] if n not in b["ets_miss"]]
+        print(f"B에서만 빠진 정답지 인명: {lost or '없음'} / B에서만 살아난 인명: {gained or '없음'}", file=sys.stderr)
+
+
 def r4(x):
     return None if x is None or x != x else round(x, 4)
 
@@ -182,6 +245,10 @@ def main():
     parser.add_argument("--no-gate", action="store_true", help="기준선 비교를 생략 (채점만; 드라이버가 자체 판정할 때)")
     parser.add_argument("--self-check-reference", action="store_true",
                         help="전문가 번역을 가설로 넣어 정답지 자체를 점검 (LLM·DB 불필요)")
+    parser.add_argument("--report", nargs="?", const="-", metavar="PATH",
+                        help="문장 단위 TSV 리포트 (경로 생략 시 stdout). 사람용 요약은 stderr")
+    parser.add_argument("--compare-batch", metavar="UUID",
+                        help="이 배치(B)를 같은 문장으로 짝지어 A(기본 필터) 대비 ΔchrF·인명 변화를 낸다")
     args = parser.parse_args()
 
     gold = load_goldenset(args.corpus)
@@ -190,8 +257,10 @@ def main():
     if args.self_check_reference:
         # 정답 번역의 ETS = 정답지·채점 규칙의 상한. 100%가 아닌 몫은 정답지 표기(한글명)와 전문가
         # 번역 표기의 차이(성 생략·이칭 등)이지 번역 오류가 아니다 — 게이트 오탐률 3.9%와 같은 성격.
-        items = [{"id": r["id"], "hypothesis": r["reference"]} for r in gold.values()]
+        items = [{"id": r["id"], "hypothesis": r["reference"], "reference": r["reference"]} for r in gold.values()]
         e = ets(items, groundtruth)
+        if args.report:
+            write_report([r for r in sentence_rows(items, groundtruth) if r["ets_miss"]], args.report)
         out = {"mode": "self-check-reference", "n": len(items), **{k: r4(v) if isinstance(v, float) else v for k, v in e.items()}}
         if args.json:
             print(json.dumps(out, ensure_ascii=False))
@@ -205,7 +274,7 @@ def main():
         found = fetch_results(conn, gold.keys(), args.batch_id, args.prompt_version, args.model)
 
     items = [{"id": gold[h]["id"], "reference": gold[h]["reference"], "hypothesis": res["hypothesis"],
-              "entities": res["entities"], "tokens_in": res["tokens_in"]}
+              "entities": res["entities"], "tokens_in": res["tokens_in"], "grade": res["grade"]}
              for h, res in found.items()]
     if len(items) < MIN_ITEMS:
         emit(f"매칭된 시스템 결과가 {len(items)}건뿐 — 채점 불가 (골든셋 배치를 먼저 돌릴 것)", args.json)
@@ -234,6 +303,20 @@ def main():
                "ets": r4(e["ets"]), "ets_lenient": r4(e["ets_lenient"]), "ets_macro": r4(e["ets_macro"]),
                "ets_names": e["ets_names"], "ets_sentences": e["ets_sentences"],
                "mean_tokens_in": round(statistics.fmean(tokens), 1) if tokens else None}
+
+    if args.report:
+        compare = None
+        if args.compare_batch:
+            with psycopg.connect(DSN) as conn:
+                found_b = fetch_results(conn, gold.keys(), batch_ids=[args.compare_batch])
+            items_b = [{"id": gold[h]["id"], "reference": gold[h]["reference"], "hypothesis": r["hypothesis"],
+                        "entities": r["entities"], "tokens_in": r["tokens_in"], "grade": r["grade"]}
+                       for h, r in found_b.items()]
+            compare = {r["id"]: r for r in sentence_rows(items_b, groundtruth)}
+            emit(f"비교 배치 B: n={len(items_b)}", True)
+        write_report(sentence_rows(items, groundtruth), args.report, compare)
+        if args.report == "-":
+            return   # stdout을 표로 썼으니 판정 줄과 섞지 않는다
 
     if args.save_baseline or not BASELINE_PATH.exists():
         BASELINE_PATH.write_text(json.dumps(current, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

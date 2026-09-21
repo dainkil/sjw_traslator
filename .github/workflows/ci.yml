@@ -49,3 +49,15 @@ jobs:
 
       # 품질 비열등 판정(eval/score_db.py)은 시스템 결과가 쌓인 DB가 필요해 CI 컨테이너에선 돌 수 없다.
       # 종료 코드 계약(위반=1)은 이미 CI-호환 — 배포 타겟의 DB가 생기는 M6에서 스케줄 잡으로 연결한다.
+      # 그 결정론적 절반(프롬프트 체크섬 게이트)과 채점기·드라이버 단위 테스트는 아래 eval-tests가 돈다 (ADR-013).
+
+  eval-tests:
+    # 평가 하네스 (M3.5): 채점기·ablation 드라이버 단위 테스트 + 프롬프트 체크섬 회귀 게이트 (ADR-013).
+    # LLM 호출 0회, DB·Redis 불필요 — 프롬프트를 고치고 기준선을 재저장하지 않으면 여기서 빨개진다.
+    # ner-server 테스트는 onnxruntime·transformers 의존이 무거워 아직 CI 밖이다.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: eval tests
+        run: uv run --no-project --with pytest --with sacrebleu --with "psycopg[binary]" pytest eval/tests -q

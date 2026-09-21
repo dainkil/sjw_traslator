@@ -339,6 +339,14 @@ M2.5처럼 계획 중간에 삽입한 마일스톤. 계기는 AI 엔지니어링
     # 전부 끝나면: ... --verdict  /  ... --table (benchmarks 표 교체)
     # 실험 종료 후 되돌리기: docker compose -f deploy/docker-compose.yml up -d api worker   (기본 env — 캐시 on, 승격 on, 생산 프롬프트, 골든셋 300)
     ```
+  - **막간 작업 (2026-09-21, quota 대기 중, LLM 0회):**
+    ① `simulate_routing.py`에 채택 규칙(`tier_adopted` = `TierRouter.classify` 이식) 추가 → T0 8,080 / T1 52,843 /
+    T2 1,133 **정확 재현**(M4-S1의 "알려진 갭" 닫힘, benchmarks M4-S1 절에 재현 커맨드).
+    ② `score_db.py --report [PATH]` 문장 단위 TSV + `--compare-batch B` 짝 비교(movers·인명 변화) — v1 손실이
+    짧은 정형문에 몰려 있음을 확인(benchmarks S2 "읽는 법").
+    ③ `eval/tests/` 11건 + CI `eval-tests` 잡(uv+pytest, DB 불필요) + **프롬프트 체크섬 회귀 게이트**
+    (`test_prompt_version_gate.py` — 기준선 `prompt_versions`에 없는 체크섬이면 실패; 기준선이 pre-V4라 지금은 skip,
+    S2 종료 시 `--save-baseline`이 켠다) + **ADR-013 작성**(비결정 출력 회귀 검증 — 결정론 축 CI / 확률 축 오프라인).
   - 채택 시: `translate-main.st` 교체 → `score_db.py --prompt-version <new> --save-baseline` → cost-model 프롬프트
     오버헤드 행(448·700 tok) 실측 교체 → README/presentation의 `main-d5ac24e9` 갱신 → ADR-013. 미채택 시 결과만 기록.
 
@@ -377,7 +385,7 @@ M2.5처럼 계획 중간에 삽입한 마일스톤. 계기는 AI 엔지니어링
 ### 5.3 미작성 ADR
 
 **작성 완료 (2026-09-01, M2.5-S1):** 004(KB in-memory) / 007(Tool Calling 배제) / 008(ChatMemory 배제) / 012(Kafka·MSA·K8s 배제) / 021(단일 워커 — 처리량 실측 근거) / 023(Flyway).
-**남은 M2.5 산출물:** 022(배포 타겟) — 018(S4)·019(S5)·020(S6) 작성 완료. 009~011·013은 M3~M5에서.
+**남은 M2.5 산출물:** 022(배포 타겟) — 018(S4)·019(S5)·020(S6) 작성 완료. 009(M3)·010(M4)·013(M3.5, 2026-09-21) 작성 완료 — 011은 M5에서.
 
 ## 6. 세션 운영 규칙 (작업 재개 시)
 

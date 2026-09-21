@@ -106,7 +106,8 @@ def container_location(v: str, template: Path) -> str:
 
 # ── 층화 표본 ────────────────────────────────────────────────────────────
 
-def make_sample(n: int, seed: int):
+def pick_sample(n: int, seed: int) -> dict:
+    """층화 표본을 계산만 한다 (파일을 쓰지 않는다 — 재현성 테스트가 이 함수를 부른다)."""
     ev = json.loads(GOLDEN_PATH.read_text(encoding="utf-8"))
     rows = ev["corpus"]
     patterns = load_patterns()
@@ -135,8 +136,13 @@ def make_sample(n: int, seed: int):
         "ids": [r["id"] for r in sample],
         "corpus": sample,
     }
+    return out
+
+
+def make_sample(n: int, seed: int):
+    out = pick_sample(n, seed)
     SAMPLE_PATH.write_text(json.dumps(out, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
-    print(f"표본 저장: {SAMPLE_PATH.name} n={out['n']} 층={len(strata)} "
+    print(f"표본 저장: {SAMPLE_PATH.name} n={out['n']} 층={len(out['strata'])} "
           f"정답지 인명 {out['groundtruth_names']}건/문장 {out['groundtruth_sentences']}건")
     for k, c in out["strata"].items():
         print(f"  {c:3d}  {k}")

@@ -63,7 +63,7 @@ docs/                 cost-model, prompts, asset-inventory, adr/
 api/ worker/          Spring Boot (M1~)
 ner-server/           Python + FastAPI + ONNX Runtime (M1~)
 kb/                   인조 연간 인물 KB (2,690명 / 역색인 9,403키) + 링킹 로직
-eval/                 골든셋 300문장 + NER 정답셋 + 채점기 + 캐시 히트율 시뮬레이터
+eval/                 골든셋 300문장 + NER 정답셋 + 채점기(ETS·문장 리포트) + 시뮬레이터 2종 + 프롬프트 ablation 드라이버 + 단위 테스트(CI eval-tests)
 load-test/ deploy/ grafana/   (M5~M6)
 research/             선행 연구 코드·문서 보존
 ```
