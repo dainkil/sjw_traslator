@@ -1,9 +1,26 @@
 {
-  "date": "2026-09-01",
+  "date": "2026-09-21",
   "n": 70,
   "models": [
     "gemini-3.1-flash-lite"
   ],
+  "prompt_versions": [
+    "(pre-V4: null)"
+  ],
+  "batch_ids": [
+    "4951cc26-ab8b-4e1b-9635-333881e95af2",
+    "a606ec28-d9c3-4f17-aa7b-c53757594bff",
+    "c82bb196-7503-4fca-8f93-d0c91477a8c6"
+  ],
+  "corpus": "eval300_1925.json",
+  "groundtruth": "ner_groundtruth_300.json",
   "chrf": 41.52,
-  "confirmed_name_recall": 0.9909
+  "confirmed_name_recall": 0.9909,
+  "n_confirmed": 110,
+  "ets": 0.9821,
+  "ets_lenient": 0.9911,
+  "ets_macro": 0.9733,
+  "ets_names": 112,
+  "ets_sentences": 50,
+  "mean_tokens_in": 877.0
 }
