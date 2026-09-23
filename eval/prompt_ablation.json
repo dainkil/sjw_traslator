@@ -242,9 +242,251 @@
         },
         {
           "round": 2,
-          "batch_id": "e95b8d16-9fdb-4453-be8d-528f755bc754",
+          "batch_id": "7ba6df24-6aa7-46d2-80bf-1eb286a8ee80",
+          "status": "COMPLETED",
+          "submitted_at": "2026-09-23T02:39:19+00:00",
+          "completed_at": "2026-09-23T02:43:34+00:00",
+          "scores": {
+            "n": 60,
+            "chrf": 39.8184,
+            "confirmed_name_recall": 0.9906,
+            "n_confirmed": 106,
+            "ets": 0.9712,
+            "ets_lenient": 0.9712,
+            "ets_macro": 0.9572,
+            "ets_names": 104,
+            "ets_sentences": 38,
+            "mean_tokens_in": 912.85,
+            "grades": {
+              "VERIFIED": 37,
+              "REJECTED": 1,
+              "DEGRADED": 22
+            },
+            "models": [
+              "gemini-3.1-flash-lite"
+            ]
+          },
+          "failed": 0
+        },
+        {
+          "round": 3,
+          "batch_id": "2403f7fb-818f-486f-99ee-b52e5b0d90a5",
+          "status": "COMPLETED",
+          "submitted_at": "2026-09-23T02:43:34+00:00",
+          "completed_at": "2026-09-23T02:47:49+00:00",
+          "scores": {
+            "n": 60,
+            "chrf": 39.9616,
+            "confirmed_name_recall": 0.9906,
+            "n_confirmed": 106,
+            "ets": 0.9712,
+            "ets_lenient": 0.9712,
+            "ets_macro": 0.9572,
+            "ets_names": 104,
+            "ets_sentences": 38,
+            "mean_tokens_in": 912.85,
+            "grades": {
+              "VERIFIED": 37,
+              "REJECTED": 1,
+              "DEGRADED": 22
+            },
+            "models": [
+              "gemini-3.1-flash-lite"
+            ]
+          },
+          "failed": 0
+        }
+      ]
+    },
+    "v4": {
+      "template": "eval/prompts/v4-minimal.st",
+      "worker_env": "file:/eval/prompts/v4-minimal.st",
+      "prompt_version": "main-4a1cb192",
+      "rounds": [
+        {
+          "round": 1,
+          "batch_id": "82d4f156-4f8a-4387-9503-4b8b88915257",
+          "status": "COMPLETED",
+          "submitted_at": "2026-09-23T02:48:35+00:00",
+          "completed_at": "2026-09-23T02:52:51+00:00",
+          "scores": {
+            "n": 60,
+            "chrf": 40.1362,
+            "confirmed_name_recall": 1.0,
+            "n_confirmed": 106,
+            "ets": 0.9808,
+            "ets_lenient": 0.9808,
+            "ets_macro": 0.9836,
+            "ets_names": 104,
+            "ets_sentences": 38,
+            "mean_tokens_in": 814.85,
+            "grades": {
+              "VERIFIED": 38,
+              "DEGRADED": 22
+            },
+            "models": [
+              "gemini-3.1-flash-lite"
+            ]
+          },
+          "failed": 0
+        },
+        {
+          "round": 2,
+          "batch_id": "e7d8e895-3f37-4d13-ae5d-5fdf416e83cc",
+          "status": "COMPLETED",
+          "submitted_at": "2026-09-23T02:52:51+00:00",
+          "completed_at": "2026-09-23T02:57:06+00:00",
+          "scores": {
+            "n": 60,
+            "chrf": 40.4479,
+            "confirmed_name_recall": 1.0,
+            "n_confirmed": 106,
+            "ets": 0.9808,
+            "ets_lenient": 0.9808,
+            "ets_macro": 0.9836,
+            "ets_names": 104,
+            "ets_sentences": 38,
+            "mean_tokens_in": 814.85,
+            "grades": {
+              "VERIFIED": 38,
+              "DEGRADED": 22
+            },
+            "models": [
+              "gemini-3.1-flash-lite"
+            ]
+          },
+          "failed": 0
+        },
+        {
+          "round": 3,
+          "batch_id": "90d925b6-eaa4-47a8-92b5-b863881d8633",
+          "status": "COMPLETED",
+          "submitted_at": "2026-09-23T02:57:06+00:00",
+          "completed_at": "2026-09-23T03:01:21+00:00",
+          "scores": {
+            "n": 60,
+            "chrf": 40.3199,
+            "confirmed_name_recall": 1.0,
+            "n_confirmed": 106,
+            "ets": 0.9808,
+            "ets_lenient": 0.9808,
+            "ets_macro": 0.9836,
+            "ets_names": 104,
+            "ets_sentences": 38,
+            "mean_tokens_in": 814.85,
+            "grades": {
+              "VERIFIED": 38,
+              "DEGRADED": 22
+            },
+            "models": [
+              "gemini-3.1-flash-lite"
+            ]
+          },
+          "failed": 0
+        }
+      ]
+    },
+    "v2": {
+      "template": "eval/prompts/v2-no-style-table.st",
+      "worker_env": "file:/eval/prompts/v2-no-style-table.st",
+      "prompt_version": "main-9f799d2f",
+      "rounds": [
+        {
+          "round": 1,
+          "batch_id": "41090770-367e-4176-b0b4-081f4ea997e3",
+          "status": "COMPLETED",
+          "submitted_at": "2026-09-23T03:01:32+00:00",
+          "completed_at": "2026-09-23T03:05:48+00:00",
+          "scores": {
+            "n": 60,
+            "chrf": 38.2656,
+            "confirmed_name_recall": 0.9906,
+            "n_confirmed": 106,
+            "ets": 0.9712,
+            "ets_lenient": 0.9712,
+            "ets_macro": 0.9572,
+            "ets_names": 104,
+            "ets_sentences": 38,
+            "mean_tokens_in": 792.85,
+            "grades": {
+              "VERIFIED": 37,
+              "REJECTED": 1,
+              "DEGRADED": 22
+            },
+            "models": [
+              "gemini-3.1-flash-lite"
+            ]
+          },
+          "failed": 0
+        },
+        {
+          "round": 2,
+          "batch_id": "9fc21a5d-b9c7-470d-9317-61b433cb5195",
+          "status": "COMPLETED",
+          "submitted_at": "2026-09-23T03:05:48+00:00",
+          "completed_at": "2026-09-23T03:10:03+00:00",
+          "scores": {
+            "n": 60,
+            "chrf": 37.8743,
+            "confirmed_name_recall": 0.9906,
+            "n_confirmed": 106,
+            "ets": 0.9712,
+            "ets_lenient": 0.9712,
+            "ets_macro": 0.9572,
+            "ets_names": 104,
+            "ets_sentences": 38,
+            "mean_tokens_in": 792.85,
+            "grades": {
+              "VERIFIED": 37,
+              "REJECTED": 1,
+              "DEGRADED": 22
+            },
+            "models": [
+              "gemini-3.1-flash-lite"
+            ]
+          },
+          "failed": 0
+        },
+        {
+          "round": 3,
+          "batch_id": "9d446c09-153c-45b4-9292-0addf75c6b3c",
+          "status": "COMPLETED",
+          "submitted_at": "2026-09-23T03:10:03+00:00",
+          "completed_at": "2026-09-23T03:14:34+00:00",
+          "scores": {
+            "n": 60,
+            "chrf": 37.9894,
+            "confirmed_name_recall": 0.9906,
+            "n_confirmed": 106,
+            "ets": 0.9712,
+            "ets_lenient": 0.9712,
+            "ets_macro": 0.9572,
+            "ets_names": 104,
+            "ets_sentences": 38,
+            "mean_tokens_in": 792.85,
+            "grades": {
+              "VERIFIED": 37,
+              "REJECTED": 1,
+              "DEGRADED": 22
+            },
+            "models": [
+              "gemini-3.1-flash-lite"
+            ]
+          },
+          "failed": 0
+        }
+      ]
+    },
+    "v3": {
+      "template": "eval/prompts/v3-examples-5rep.st",
+      "worker_env": "file:/eval/prompts/v3-examples-5rep.st",
+      "prompt_version": "main-7275462b",
+      "rounds": [
+        {
+          "round": 1,
+          "batch_id": "91f511f6-bb66-4780-9778-3fe632e22c88",
           "status": "RUNNING",
-          "submitted_at": "2026-09-21T07:56:51+00:00",
+          "submitted_at": "2026-09-23T03:14:42+00:00",
           "completed_at": null,
           "scores": null
         }
@@ -252,13 +494,10 @@
     }
   },
   "verdict": {
-    "at": "2026-09-21T07:52:28+00:00",
+    "at": "2026-09-23T03:16:12+00:00",
     "complete": false,
     "unmeasured": [
-      "v2",
-      "v3",
-      "v4",
-      "v5"
+      "v3"
     ],
     "tolerances": {
       "chrf": 2.0,
@@ -309,10 +548,58 @@
           "mean_tokens_in": -112.0
         },
         "pass": true
+      },
+      {
+        "variant": "v2",
+        "median": {
+          "chrf": 37.9894,
+          "confirmed_name_recall": 0.9906,
+          "ets": 0.9712,
+          "mean_tokens_in": 792.85
+        },
+        "delta": {
+          "chrf": 0.08720000000000283,
+          "confirmed_name_recall": 0.0,
+          "ets": 0.0,
+          "mean_tokens_in": -125.0
+        },
+        "pass": true
+      },
+      {
+        "variant": "v4",
+        "median": {
+          "chrf": 40.3199,
+          "confirmed_name_recall": 1.0,
+          "ets": 0.9808,
+          "mean_tokens_in": 814.85
+        },
+        "delta": {
+          "chrf": 2.4176999999999964,
+          "confirmed_name_recall": 0.009399999999999964,
+          "ets": 0.009600000000000053,
+          "mean_tokens_in": -103.0
+        },
+        "pass": true
+      },
+      {
+        "variant": "v5",
+        "median": {
+          "chrf": 39.8184,
+          "confirmed_name_recall": 0.9906,
+          "ets": 0.9712,
+          "mean_tokens_in": 912.85
+        },
+        "delta": {
+          "chrf": 1.9161999999999964,
+          "confirmed_name_recall": 0.0,
+          "ets": 0.0,
+          "mean_tokens_in": -5.0
+        },
+        "pass": true
       }
     ],
     "chosen": null,
-    "interim_leader": "v1",
+    "interim_leader": "v2",
     "rule": "통과 변형 중 tokens_in 중앙값 최소. 통과 없음 → v0 유지. 전 변형 3라운드 전에는 중간 판정."
   },
   "discarded": [
@@ -326,6 +613,17 @@
       "variant": "v0",
       "reason": "REJECTED 1건이 3.5-flash로 승격돼 모델이 섞임 + 예산 60이 59건에서 소진(BUDGET_EXHAUSTED). 승격 off·예산 2n으로 재실행",
       "dropped_at": "2026-09-21T07:25:28+00:00"
+    },
+    {
+      "round": 2,
+      "batch_id": "e95b8d16-9fdb-4453-be8d-528f755bc754",
+      "status": "RUNNING",
+      "submitted_at": "2026-09-21T07:56:51+00:00",
+      "completed_at": null,
+      "scores": null,
+      "variant": "v5",
+      "reason": "2026-09-21 QUOTA_PAUSED(16/60) 후 다른 머신(빈 DB)에서 재개 — 배치가 이 DB에 없어 resume 불가. 새 배치로 라운드 2 재실행 (2026-09-23)",
+      "dropped_at": "2026-09-23T02:39:10+00:00"
     }
   ]
 }
