@@ -21,7 +21,10 @@ def test_variants_cover_every_prompt_file():
     files = sorted(p.name for p in pa.PROMPTS_DIR.glob("v*.st"))
     assert files, "eval/prompts/에 변형이 없다"
     assert sorted(p.name for v, p in vs.items() if v != "v0") == files
-    assert len({pa.expected_version(p) for p in vs.values()}) == len(vs)   # 변형끼리 버전 충돌 없음
+    variant_versions = [pa.expected_version(p) for v, p in vs.items() if v != "v0"]
+    assert len(set(variant_versions)) == len(variant_versions)            # 변형끼리 버전 충돌 없음
+    # 생산 프롬프트는 모든 변형과 다르거나(실험 중), 정확히 한 변형과 같다(채택 후 — M3.5-S2에서 v4를 복사)
+    assert variant_versions.count(pa.expected_version(pa.PROD_TEMPLATE)) <= 1
 
 
 def test_stratified_sample_is_reproducible():

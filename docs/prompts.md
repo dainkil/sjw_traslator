@@ -1,5 +1,10 @@
 # 프롬프트 자산 — 선행 연구 원문 기록
 
+> **현재 생산 프롬프트는 이 문서의 §1이 아니다.** 2026-09-24 M3.5-S2 ablation으로 `eval/prompts/v4-minimal.st`
+> (코퍼스 표기 예시 5개 + `[반드시 사용할 표현]` + `[등장 인물 한자→한글]` + uncertainSpans 지시)를
+> `common/src/main/resources/prompts/translate-main.st`에 채택했다 (`main-4a1cb192`). 아래 §1은 M1 이식 원천이자
+> ablation 대조군 v0(`main-d5ac24e9`)의 기록으로 남긴다. 근거: `docs/benchmarks.md` 서빙 프롬프트 ablation 절.
+
 M1에서 Spring AI `PromptTemplate`으로 구조화할 원천. 출처: `research/04_ablation/run_kbinject.py`(`build_prompt`), `research/04_ablation/fewshot_config.json`.
 
 ## 1. 번역관 페르소나 프롬프트 (KB 주입형)

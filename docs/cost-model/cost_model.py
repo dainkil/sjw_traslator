@@ -32,8 +32,8 @@ class Params:
     # --- 토큰 환산 [실측 2026-08-31 — countTokens, 골든셋 300문장, measure_tokens.py] ---
     tokens_per_src_char: float = 0.954   # [실측] 한자 원문 토큰/글자 (중앙값 0.940)
     tokens_per_out_char: float = 0.630   # [실측] 한국어 번역문 토큰/글자 (중앙값 0.621)
-    prompt_overhead_tokens: float = 700  # [실측 역산] E2E 요청당 입력 ~820tok(usage 실측) - 원문 ~120tok.
-                                         # 구성: 페르소나 448(countTokens) + Structured Output 지시문·KB블록 ~250
+    prompt_overhead_tokens: float = 597  # [실측] v4 프롬프트(M3.5-S2 채택, main-4a1cb192): 종전 700(E2E ~820 - 원문 ~120)에서
+                                         # 템플릿 고정부 countTokens 477 → 374 (−103), 같은 60문장 E2E tokens_in 917.9 → 814.9 (−103.0)
     # --- 운영 가정 ---
     retry_overhead: float = 0.05   # [추정] 재시도로 인한 호출량 증가율 (429/5xx)
     cache_hit_rate: float = 0.0    # M3 전 기준. 실측 후 갱신
