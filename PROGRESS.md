@@ -14,6 +14,7 @@
 | M3 템플릿 슬롯 캐싱 | ✅ **완료 (2026-09-11)** | S1 슬롯 로직 / S2 L1 라이브 / S3 L2 라이브 / S4 히트율 **17.36% 실측** / S5 비열등 **통과** — 수용 기준 판정은 §5.1.2 |
 | M3.5 평가 신뢰도 + 프롬프트 실측 (삽입) | ✅ **완료 (2026-09-24)** | S1: 독립 정답지 ETS 도입(종전 99.09%는 순환 지표). S2: 서빙 프롬프트 6변형 ablation → **v4 채택**(chrF +2.42, 토큰 −11.2%, 인명 +1) — §5.4. KB 주입 A/B: **LLM 단독 ETS 0.9038 → 파이프라인 0.9712** |
 | M4 NER 비용 라우팅 | 진행 중 (S1 완료, 2026-09-11 · S2 ① gemma-4 탐침 2026-09-21: 측정 불가 — 출력 형식 계약 위반) | 신호 분포 실측 → **계획서 §5.1 표가 성립하지 않음을 확인**(T2 29.86%가 quota의 8배, 완역 124→926일). 난이도/배정 분리로 재설계, ADR-010 |
+| **공개 서빙 1차** (최소 하드닝 + skala-gj 배포) | **다음 — 계획 확정, 미착수** | §5.0 — BYOK 필수, SKALA EKS `skala-gj4`, `https://skala-gj4-sjw.skala-gj.com` |
 | M5 비용 SLI + 예산 서킷브레이커 | 예정 | |
 | M6 배포/CI/부하테스트 | 선행 1건 완료 (2026-09-21) | **가짜 LLM provider** — 429·503·REJECTED를 quota 0으로 유발, M2 수용 기준 ② 닫힘 — §5.5 |
 
@@ -85,7 +86,91 @@ curl -s localhost:8080/api/v1/translations/<jobId> # → SUCCEEDED + 번역
 
 > **2026-09-01 계획 개정.** 계획 검토 결과 M3·M4가 둘 다 아직 없는 추상화(모델 레지스트리, 검증된 `kb_version`, 품질 게이트)에 의존한다는 점이 확인되어, **M2.5를 M3 앞에 삽입**했다. 개정 전문은 [PROJECT_PLAN.md](PROJECT_PLAN.md) §5.4 / §10 / §15.
 
-### 5.1 M3 진행 (현재 재개 지점)
+### 5.0 공개 서빙 1차 — 최소 하드닝 + skala-gj 배포 (**현재 재개 지점**, 계획 확정 2026-09-23 · 미착수)
+
+**결정 (사용자, 2026-09-23):** 추가 실험을 기다리지 않고 지금 품질(M3.5-S2 v4 프롬프트)로 외부 사용자에게 서빙한다.
+계획서 §13("공개 호스팅은 M6 이후")보다 앞당긴 것이며, 범위를 공개에 꼭 필요한 최소분으로 좁혔다.
+- **LLM 비용: BYOK 필수** — 사용자 Gemini 키(`X-Llm-Key`). 운영자 비용 0 유지 (ADR-016·020, 계획서 §15.3과 일치).
+- **호스팅: SKALA 실습 클러스터 skala-gj (EKS, ap-northeast-2), 네임스페이스 `skala-gj4`** — ADR-022의 Oracle A1을 대체.
+  환경(과정 안내 PDF 기준): Harbor 레지스트리 `harbor.skala-gj.com/skala-gj4/*`, ArgoCD AppProject `skala-gj4`(GitOps),
+  nginx Ingress + `*.skala-gj.com` 와일드카드 DNS, cert-manager `letsencrypt-prod`, StorageClass `ebs-sc`(기본, RWO),
+  **노드 x86_64**, 권한은 네임스페이스 범위만. **자격증명(AWS 키·Harbor·ArgoCD 비밀번호)은 PDF에만 있다 — 저장소·문서·
+  명령 기록에 절대 남기지 않는다.**
+- **노출:** `https://skala-gj4-sjw.skala-gj.com` (Ingress 하나). 사용자는 "HTTP 우선"을 골랐으나 이 환경에선 TLS가
+  어노테이션 한 줄이고 BYOK 키가 헤더로 오가므로 처음부터 HTTPS (발급 실패 시 HTTP로 먼저 열고 이어서 처리).
+- **범위 밖(이후):** M5의 3단계 예산 저하·Grafana 전 지표·ADR-011, 동기 경로 원장 기록, CI 이미지 푸시.
+- **주의:** 실습 클러스터라 노드가 내려가 있을 수 있고 과정 종료 후 유지 보장이 없다 → 상시 서비스가 아니라
+  **"공개 데모"**로 문서화. compose 셀프호스트 경로는 그대로 유지.
+
+**왜 하드닝이 먼저인가 — 지금 스택은 "나 혼자 로컬" 전제다 (2026-09-23 조사):**
+키 없는 요청이 default 테넌트로 통과(→ 운영자 무료 quota를 누구나 소진) / batch pause·resume에 소유권 검사 없음 /
+동기 경로 429가 500으로 나감 / LLM 하드 타임아웃 없음(26분 RUNNING 선례) / `/actuator/prometheus` 404(레지스트리 없음) /
+redis 무비밀번호·postgres `sjw/sjw` 하드코딩·전 포트 호스트 노출 / K8s 매니페스트 없음.
+
+**0. 접속 준비 (자격증명 입력은 사용자가 직접 셸에서)**
+- `aws configure --profile skala-gj4` → `aws eks update-kubeconfig --name skala-gj --region ap-northeast-2 --profile skala-gj4`
+  → `kubectl config set-context --current --namespace=skala-gj4`.
+- Harbor: `docker login harbor.skala-gj.com -u skala-gj4 --password-stdin` (**`https://` 없이** — 붙이면 push 401).
+  `harbor-cred` docker-registry Secret도 사용자가 생성.
+- 확인: `kubectl get nodes`(여유 메모리 — 전 스택 요청 ~2.5GB), `kubectl auth can-i create ingress`, `kubectl get sc`.
+- ArgoCD가 GitHub 저장소를 읽을 수 있는지 (비공개면 저장소 자격증명 등록 필요).
+
+**1. 하드닝 (코드)**
+- **1-1 공개 모드 접근 제어** — `sjw.public-mode`(기본 false, K8s에서 true).
+  - `TenantGuard.resolve`: 공개 모드면 `X-Api-Key` 없을 때 default 테넌트로 떨어지지 않고 401.
+  - `TranslationController` `/sync`·`/stream`: `X-Llm-Key` 없으면 **L1 캐시 히트만 응답**, 미스는 403 `BYOK_REQUIRED`
+    (§15.3 "미인증은 캐시 히트만").
+  - 비동기 `/translations` POST·`/batches`: 운영자 키를 쓰므로 `tenant.operator_access=true` 테넌트만 (V5 마이그레이션,
+    기본 false). BYOK 배치는 ADR-020대로 범위 밖.
+  - `BatchController` get/pause/resume: 배치 `tenant_id` 소유권 검사 (타 테넌트 404).
+  - 키 발급: 관리 API 대신 `deploy/k8s/issue-key.sh <tenant> <daily_limit>` — 랜덤 키 → SHA-256을 psql로 INSERT,
+    평문은 한 번만 출력 (`TenantRepository` 해시 방식 재사용).
+- **1-2 동기 경로 실패 처리** — `FailureClassifier`·`ErrorClass`를 worker → common으로 이동. api `@RestControllerAdvice`:
+  RATE_LIMITED/QUOTA_DAILY → 429 + `Retry-After`, NER_UNAVAILABLE → 503, SPEND_CAP·잘못된 BYOK 키 → 4xx, 나머지 502.
+  BYOK 키는 응답·로그에서 마스킹(§8.2). api에도 `spring.ai.retry.max-attempts: 1`(이중 재시도 방지).
+- **1-3 LLM 하드 타임아웃** — `sjw.llm.timeout-ms`(기본 60000). BYOK 클라이언트(`TranslatorFactory`)와 운영자 기본 클라이언트
+  (`LlmConfig`)에 `HttpOptions.timeout`. 타임아웃은 `FailureClassifier`가 이미 일시 오류로 분류 → 워커 재시도/서킷 경로 그대로.
+- **1-4 관측 최소분** — `micrometer-registry-prometheus`를 api·worker에 추가, actuator는 **별도 관리 포트**(api 9080 /
+  worker 9081, 공개 Service에는 앱 포트만). api에도 `tenant.calls`·`llm.tokens`·`translation.quality.grade` 카운터.
+- **1-5 비밀·설정 외부화** — DB·redis 비밀번호를 env(`SPRING_DATASOURCE_PASSWORD`, `SPRING_DATA_REDIS_PASSWORD`)로.
+  compose 기본값은 유지(로컬 개발 무변경).
+
+**2. 이미지 — Harbor.** `deploy/k8s/build-push.sh <tag>`: `docker buildx build --platform linux/amd64`(Apple Silicon → amd64
+필수)로 `harbor.skala-gj.com/skala-gj4/sjw-{api,worker,ner}:<git short SHA>` push. ner 이미지는 모델(gitignore)이 필요해
+로컬 빌드·푸시. 푸시 후 `deploy/k8s/kustomization.yaml`의 `images:` 태그를 커밋 → ArgoCD 동기화 (배포 = 커밋).
+
+**3. K8s 매니페스트 — `deploy/k8s/`** (kustomize, Helm·오퍼레이터 없음) + ArgoCD Application
+- `postgres` StatefulSet + PVC 5Gi(`ebs-sc`) / `redis`(`--requirepass`) / `ner` — 전부 ClusterIP.
+- `api` Deployment(앱 8080, 관리 9080, readiness on 9080) + ClusterIP 80→8080.
+- **Ingress** `nginx`, host `skala-gj4-sjw.skala-gj.com`, `cert-manager.io/cluster-issuer: letsencrypt-prod` + tls.
+  공개 진입점은 이것 하나. SSE용 `proxy-buffering: off`·`proxy-read-timeout` 어노테이션.
+- `worker` **replicas 1, strategy `Recreate`** (ADR-021 — 롤링 중 2대가 겹치면 이중 과금 위험).
+- 모든 Pod `imagePullSecrets: harbor-cred`. resources requests/limits (JVM `-XX:MaxRAMPercentage`).
+- ConfigMap: 생산 기본값 (v4 프롬프트, 캐시 L1 on, 승격 on, 라우팅 off, `SJW_PUBLIC_MODE=true`).
+- Secret `sjw-secrets`(GEMINI_API_KEY·DB·redis 비밀번호)는 **git에 넣지 않는다** — `deploy/k8s/create-secrets.sh`가 로컬
+  `.env`로 `kubectl create secret` (ArgoCD 관리 밖). `GEMINI_API_KEY`는 운영자 테넌트 배치용.
+- `deploy/k8s/argocd-app.yaml` (project·dest-namespace `skala-gj4`, path `deploy/k8s`, automated sync).
+- Prometheus/Grafana는 넣지 않음 — `/actuator/prometheus`만 열어 두고 대시보드는 M5.
+
+**4. 문서·ADR** — ADR-022 개정(타겟 → skala-gj4, 가용성은 과정 기간 한정) / ADR-012 주석(K8s 배제는 "이력서용 도입"을 막는
+것 — 제공된 클러스터에 평범한 kustomize로 올리는 것은 예외, Helm·오퍼레이터·HPA·다중 워커 없음) / ADR-020 개정(공개 모드) /
+README에 공개 엔드포인트 사용법(`X-Api-Key` + `X-Llm-Key` curl 예시).
+
+**재사용:** `TenantGuard`(resolve/charge), `TenantRepository`(해시), `FailureClassifier`/`ErrorClass`,
+`TranslatorFactory.forModelWithKey`, `TranslationCache`(L1 조회), 가짜 provider(`GEMINI_MODEL=fake-flash-lite`, `FAKE_RPM`,
+`FAKE_LATENCY_MS`)로 quota 없이 검증.
+
+**검증.**
+1. `./gradlew build` + 신규 테스트: 공개 모드 401 / 캐시 히트만 / 403 `BYOK_REQUIRED` / operator_access 없는 배치 403 /
+   배치 소유권 404 / 예외 → 429 `Retry-After`·503 매핑.
+2. 로컬 compose + 가짜 provider: `FAKE_RPM=5` 동기 연타 → 429 + `Retry-After`; `FAKE_LATENCY_MS` > timeout → 타임아웃 분류,
+   RUNNING 고착 없음; `curl :9080/actuator/prometheus` 200.
+3. EKS: `kubectl kustomize deploy/k8s` 렌더 → ArgoCD sync(첫 회는 `kubectl apply -k`) → `kubectl rollout status` →
+   `https://skala-gj4-sjw.skala-gj.com`에서 키 없음 401 / 발급 키 + BYOK 없음 + 미캐시 문장 403 / 발급 키 + 실제 BYOK 키 200
+   (사용자 키로 1~2회만). 관리 포트는 외부에서 접근 불가 확인.
+4. 커밋 단위: ① 하드닝 / ② 이미지·매니페스트·배포 / ③ 문서·ADR — 단계별 보고 → 승인 → 커밋.
+
+### 5.1 M3 진행
 
 계획서 §10의 M3가 정본. 5슬라이스로 쪼갰다.
 
