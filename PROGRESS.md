@@ -354,6 +354,11 @@ M2.5처럼 계획 중간에 삽입한 마일스톤. 계기는 AI 엔지니어링
     S2 종료 시 `--save-baseline`이 켠다) + **ADR-013 작성**(비결정 출력 회귀 검증 — 결정론 축 CI / 확률 축 오프라인).
   - 채택 시: `translate-main.st` 교체 → `score_db.py --prompt-version <new> --save-baseline` → cost-model 프롬프트
     오버헤드 행(448·700 tok) 실측 교체 → README/presentation의 `main-d5ac24e9` 갱신 → ADR-013. 미채택 시 결과만 기록.
+- **KB 주입 효과 A/B 완료 (2026-09-24) — 파이프라인 대 LLM 단독.** `KB_MODE=noop`(compose passthrough 추가)으로 같은
+  층화 60문장·생산 프롬프트·캐시/승격 off 3라운드 → **ETS 0.9038(94/104) vs 0.9712(101/104), 인명 오류 10 → 3**, chrF 동일
+  (37.73 vs 37.90), 토큰 +5.8%. LLM 단독의 오류는 드문 이름 한자 오독(崔葕→최헌, 朴頵→박윤, 沈詻→심악)과 인명 누락.
+  대조군은 v0 라운드 재사용(9/21). 도구 `eval/kb_ablation.py`, 정본 `eval/kb_ablation.json`, 표는 benchmarks 마지막 절.
+  부수: 9/23 v3 자동 재개 스크립트가 Mac 절전 중 `sleep`이 멈춰 발화하지 않았다 — 장시간 대기는 절전 영향을 받는다.
 
 ### 5.5 M6 선행 — 가짜 LLM provider (2026-09-21)
 

@@ -1,0 +1,119 @@
+{
+  "created": "2026-09-24T03:55:52+00:00",
+  "sample": "eval60_stratified.json",
+  "rounds": 3,
+  "control": "prompt_ablation.json variants.v0 (KB 주입 on, 같은 프롬프트·표본·모델)",
+  "nokb": {
+    "prompt_version": "main-d5ac24e9",
+    "kb_version": "noop",
+    "rounds": [
+      {
+        "round": 1,
+        "batch_id": "a93b8817-b589-400d-ace6-45b9c3cedb88",
+        "status": "COMPLETED",
+        "submitted_at": "2026-09-24T03:55:52+00:00",
+        "completed_at": "2026-09-24T04:00:37+00:00",
+        "scores": {
+          "n": 60,
+          "chrf": 37.7341,
+          "confirmed_name_recall": null,
+          "n_confirmed": 0,
+          "ets": 0.9038,
+          "ets_lenient": 0.9038,
+          "ets_macro": 0.8976,
+          "ets_names": 104,
+          "ets_sentences": 38,
+          "mean_tokens_in": 867.5167,
+          "grades": {
+            "VERIFIED": 13,
+            "DEGRADED": 47
+          },
+          "models": [
+            "gemini-3.1-flash-lite"
+          ]
+        },
+        "failed": 0
+      },
+      {
+        "round": 2,
+        "batch_id": "a3563a39-e879-417d-a7fc-572594c854b0",
+        "status": "COMPLETED",
+        "submitted_at": "2026-09-24T04:00:37+00:00",
+        "completed_at": "2026-09-24T04:04:53+00:00",
+        "scores": {
+          "n": 60,
+          "chrf": 38.0648,
+          "confirmed_name_recall": null,
+          "n_confirmed": 0,
+          "ets": 0.9038,
+          "ets_lenient": 0.9038,
+          "ets_macro": 0.8976,
+          "ets_names": 104,
+          "ets_sentences": 38,
+          "mean_tokens_in": 867.5167,
+          "grades": {
+            "VERIFIED": 13,
+            "DEGRADED": 47
+          },
+          "models": [
+            "gemini-3.1-flash-lite"
+          ]
+        },
+        "failed": 0
+      },
+      {
+        "round": 3,
+        "batch_id": "0fa1887e-f882-4e80-8cf6-c09329aaaa41",
+        "status": "COMPLETED",
+        "submitted_at": "2026-09-24T04:04:53+00:00",
+        "completed_at": "2026-09-24T04:09:24+00:00",
+        "scores": {
+          "n": 60,
+          "chrf": 37.7102,
+          "confirmed_name_recall": null,
+          "n_confirmed": 0,
+          "ets": 0.9038,
+          "ets_lenient": 0.9038,
+          "ets_macro": 0.8976,
+          "ets_names": 104,
+          "ets_sentences": 38,
+          "mean_tokens_in": 867.5167,
+          "grades": {
+            "VERIFIED": 13,
+            "DEGRADED": 47
+          },
+          "models": [
+            "gemini-3.1-flash-lite"
+          ]
+        },
+        "failed": 0
+      }
+    ]
+  },
+  "verdict": {
+    "at": "2026-09-24T04:09:33+00:00",
+    "nokb_median": {
+      "chrf": 37.7341,
+      "ets": 0.9038,
+      "ets_lenient": 0.9038,
+      "ets_macro": 0.8976,
+      "mean_tokens_in": 867.5167
+    },
+    "kb_median": {
+      "chrf": 37.9022,
+      "ets": 0.9712,
+      "ets_lenient": 0.9712,
+      "ets_macro": 0.9572,
+      "mean_tokens_in": 917.85
+    },
+    "delta": {
+      "chrf": 0.16810000000000258,
+      "ets": 0.0673999999999999,
+      "ets_lenient": 0.0673999999999999,
+      "ets_macro": 0.0596000000000001,
+      "mean_tokens_in": 50.33330000000001
+    },
+    "ets_names": 104,
+    "note": "kb = prompt_ablation v0 라운드(2026-09-21), nokb = 이 파일의 라운드"
+  }
+}

@@ -644,3 +644,47 @@ gemma 탐침 뒤 워커를 flash-lite(v5 프롬프트)로 되돌리자 12건이 
 세우는 사이 NER_UNAVAILABLE/UNKNOWN으로 실패했다 — 한 배치 안에 두 모델·두 프롬프트가 섞였고 flash-lite 일일 quota
 4회를 썼다(499/500). 수습은 수동(pending 9건 XACK+XDEL, 미읽기 2건 XDEL). 근본 대책은 워커가 소비 전에 배치 상태를
 확인하거나 job에 모델을 고정하는 것 — M5/M6 항목으로 넘긴다. **모델 교체 재기동 전에는 `XPENDING`이 0인지 볼 것.**
+
+## KB 주입 효과 — 파이프라인 대 LLM 단독 (M3.5, 2026-09-24)
+
+헤드라인의 ETS 98%는 주입을 켠 상태의 절대값이었고, 주입 없는 번역과 비교한 적이 없었다(선행 연구의 With/Without-KB
+AB는 정성 사례뿐 — `research/README.md` 실험 결과). 같은 조건에서 **KB 주입만** 끄고 쟀다.
+
+- 표본: `eval60_stratified.json` (n=60, 정답지 인명 104), 모델 `gemini-3.1-flash-lite`, 생산 프롬프트 `main-d5ac24e9`,
+  캐시 off·승격 off, 3라운드 중앙값 — 프롬프트 ablation과 같은 규약
+- LLM 단독(nokb): 워커 `KB_MODE=noop` — 모든 링킹이 MISS라 `[등장 인물 한자→한글]` 블록이 빠진다. 역할·원칙·문체 표·
+  예시·`[반드시 사용할 표현]`은 그대로. 즉 이 A/B가 재는 것은 **NER+KB 주입의 몫**이다. self-check: `kb_version=noop`
+- 파이프라인(kb): 프롬프트 ablation의 v0 3라운드를 재사용 (2026-09-21, 다른 머신 — 프롬프트·표본·모델 동일)
+
+| 지표 | LLM 단독 | 파이프라인 | Δ |
+|---|---|---|---|
+| **ETS** (독립 정답지 인명) | 0.9038 (94/104) | **0.9712 (101/104)** | **+0.0674 — 오류 10 → 3** |
+| ETS macro (문장 평균) | 0.8976 | 0.9572 | +0.0596 |
+| chrF | 37.73 | 37.90 | +0.17 (라운드 범위 겹침 — 차이 없음) |
+| tokens_in | 867.5 | 917.9 | +50.3 (+5.8%, 인물 블록) |
+| 게이트 등급 V/D/R | 13 / 47 / 0 | 37 / 22 / 1 | (nokb는 확정 인명이 없어 대부분 DEGRADED — 품질 비교 아님) |
+
+라운드별: ETS nokb 0.9038 ×3 / kb 0.9712 ×3 (라운드 간 변동 0), chrF nokb 37.73·38.06·37.71 / kb 38.29·37.90·37.60.
+
+**읽는 법.** 주입은 문장을 더 매끄럽게 만들지 않는다(chrF 동일) — 인명에만 작용하고, 거기서 오류의 약 2/3를 없앤다.
+LLM 단독이 놓친 이름은 대부분 **드문 이름 한자를 그럴듯한 다른 음으로 읽은 것**이다 (nokb 라운드 1):
+
+| 원문 | LLM 단독 | 정답 |
+|---|---|---|
+| 崔葕啓曰 | 최**헌** | 최**연** |
+| 內醫朴頵 | 박**윤** | 박**군** |
+| 提調沈詻 | 심**악** | 심**액** |
+| 參贊官洪霶 | 홍**팽** | 홍**방** |
+| 傳于兪榥曰 | (이름 누락) "전교하기를…" | **유황에게** 전교하기를 |
+
+번역문 자체는 자연스러워 검수자가 잡기 어려운 유형이다 — 주입이 막는 것이 정확히 이것이다.
+
+**경계.** 60문장·104명 — 방향과 안정성(라운드 변동 0)은 분명하지만 폭은 표본에 따라 움직일 수 있다. 대조군과 측정일이
+다르다. 재현:
+```bash
+KB_MODE=noop CACHE_L1_ENABLED=false CACHE_L2_ENABLED=false TIER_UP_ENABLED=false \
+  docker compose -f deploy/docker-compose.yml up -d --no-deps worker
+uv run --with sacrebleu --with "psycopg[binary]" python eval/kb_ablation.py --run      # LLM 180회
+uv run --with sacrebleu --with "psycopg[binary]" python eval/kb_ablation.py --report
+```
+결과 정본 `eval/kb_ablation.json`.

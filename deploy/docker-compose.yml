@@ -59,6 +59,7 @@ services:
       #   NER_MODE=rule docker compose -f deploy/docker-compose.yml up -d api worker
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.1-flash-lite}   # 활성 모델 — fake-flash-lite면 가짜 provider (quota 0)
       NER_MODE: ${NER_MODE:-http}
+      KB_MODE: ${KB_MODE:-file}     # noop = 무주입 대조군 (전 멘션 MISS — KB 주입 효과 A/B)
       KB_NAME: ${KB_NAME:-injo}
       CACHE_EPOCH: ${CACHE_EPOCH:-1}
       CACHE_L1_ENABLED: ${CACHE_L1_ENABLED:-true}
@@ -108,6 +109,7 @@ services:
       #   NER_MODE=rule docker compose -f deploy/docker-compose.yml up -d api worker
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.1-flash-lite}   # 활성 모델 — fake-flash-lite면 가짜 provider (quota 0)
       NER_MODE: ${NER_MODE:-http}
+      KB_MODE: ${KB_MODE:-file}     # noop = 무주입 대조군 (전 멘션 MISS — KB 주입 효과 A/B)
       KB_NAME: ${KB_NAME:-injo}
       CACHE_EPOCH: ${CACHE_EPOCH:-1}
       CACHE_L1_ENABLED: ${CACHE_L1_ENABLED:-true}
