@@ -485,20 +485,91 @@
         {
           "round": 1,
           "batch_id": "91f511f6-bb66-4780-9778-3fe632e22c88",
-          "status": "RUNNING",
+          "status": "COMPLETED",
           "submitted_at": "2026-09-23T03:14:42+00:00",
-          "completed_at": null,
-          "scores": null
+          "completed_at": "2026-09-24T04:36:21+00:00",
+          "scores": {
+            "n": 60,
+            "chrf": 40.2336,
+            "confirmed_name_recall": 1.0,
+            "n_confirmed": 106,
+            "ets": 0.9808,
+            "ets_lenient": 0.9808,
+            "ets_macro": 0.9836,
+            "ets_names": 104,
+            "ets_sentences": 38,
+            "mean_tokens_in": 1051.85,
+            "grades": {
+              "VERIFIED": 38,
+              "DEGRADED": 22
+            },
+            "models": [
+              "gemini-3.1-flash-lite"
+            ]
+          },
+          "failed": 0
+        },
+        {
+          "round": 2,
+          "batch_id": "bcbd0d6b-564b-46ed-aba0-d4509dcfe219",
+          "status": "COMPLETED",
+          "submitted_at": "2026-09-24T04:36:21+00:00",
+          "completed_at": "2026-09-24T04:40:36+00:00",
+          "scores": {
+            "n": 60,
+            "chrf": 39.6726,
+            "confirmed_name_recall": 1.0,
+            "n_confirmed": 106,
+            "ets": 0.9808,
+            "ets_lenient": 0.9808,
+            "ets_macro": 0.9836,
+            "ets_names": 104,
+            "ets_sentences": 38,
+            "mean_tokens_in": 1051.85,
+            "grades": {
+              "VERIFIED": 38,
+              "DEGRADED": 22
+            },
+            "models": [
+              "gemini-3.1-flash-lite"
+            ]
+          },
+          "failed": 0
+        },
+        {
+          "round": 3,
+          "batch_id": "408f3adb-02e7-4546-87d6-fc647ecdd627",
+          "status": "COMPLETED",
+          "submitted_at": "2026-09-24T04:40:36+00:00",
+          "completed_at": "2026-09-24T04:44:52+00:00",
+          "scores": {
+            "n": 60,
+            "chrf": 39.7225,
+            "confirmed_name_recall": 1.0,
+            "n_confirmed": 106,
+            "ets": 0.9808,
+            "ets_lenient": 0.9808,
+            "ets_macro": 0.9836,
+            "ets_names": 104,
+            "ets_sentences": 38,
+            "mean_tokens_in": 1051.85,
+            "grades": {
+              "VERIFIED": 38,
+              "DEGRADED": 22
+            },
+            "models": [
+              "gemini-3.1-flash-lite"
+            ]
+          },
+          "failed": 0
         }
       ]
     }
   },
   "verdict": {
-    "at": "2026-09-23T03:16:12+00:00",
-    "complete": false,
-    "unmeasured": [
-      "v3"
-    ],
+    "at": "2026-09-24T04:45:02+00:00",
+    "complete": true,
+    "unmeasured": [],
     "tolerances": {
       "chrf": 2.0,
       "confirmed_name_recall": 0.0,
@@ -566,6 +637,22 @@
         "pass": true
       },
       {
+        "variant": "v3",
+        "median": {
+          "chrf": 39.7225,
+          "confirmed_name_recall": 1.0,
+          "ets": 0.9808,
+          "mean_tokens_in": 1051.85
+        },
+        "delta": {
+          "chrf": 1.820299999999996,
+          "confirmed_name_recall": 0.009399999999999964,
+          "ets": 0.009600000000000053,
+          "mean_tokens_in": 133.9999999999999
+        },
+        "pass": true
+      },
+      {
         "variant": "v4",
         "median": {
           "chrf": 40.3199,
@@ -598,7 +685,7 @@
         "pass": true
       }
     ],
-    "chosen": null,
+    "chosen": "v2",
     "interim_leader": "v2",
     "rule": "통과 변형 중 tokens_in 중앙값 최소. 통과 없음 → v0 유지. 전 변형 3라운드 전에는 중간 판정."
   },
