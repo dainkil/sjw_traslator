@@ -1,0 +1,63 @@
+# 원장·배치 체크포인트의 원천 — 재시작에 살아남아야 M2의 재개·멱등·예산 원장이 의미를 갖는다 (§15.3).
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  clusterIP: None
+  selector:
+    app: postgres
+  ports:
+    - name: pg
+      port: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          env:
+            - name: POSTGRES_DB
+              value: sjw
+            - name: POSTGRES_USER
+              value: sjw
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: sjw-secrets, key: POSTGRES_PASSWORD }
+            # EBS 볼륨 루트엔 lost+found가 있어 initdb가 거부한다 — 하위 디렉터리를 데이터 경로로
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "sjw", "-d", "sjw"]
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 512Mi }
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: ebs-sc
+        resources:
+          requests:
+            storage: 5Gi

@@ -1,0 +1,52 @@
+# 워커는 1대, Recreate (ADR-021·D11). 롤링 업데이트로 2대가 겹치면 같은 job을 두 번 부를 수 있다 —
+# 이중 과금. 처리량은 워커 수가 아니라 provider rate가 정한다 (1대 23.4 vs 2대 23.1 jobs/min 실측).
+# Service 없음 — 외부에서 부를 일이 없다. 관리 포트는 probe 전용.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: worker
+  template:
+    metadata:
+      labels:
+        app: worker
+    spec:
+      imagePullSecrets:
+        - name: harbor-cred
+      containers:
+        - name: worker
+          image: sjw-worker
+          envFrom:
+            - configMapRef: { name: sjw-config }
+          env:
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef: { name: sjw-secrets, key: GEMINI_API_KEY }
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: sjw-secrets, key: POSTGRES_PASSWORD }
+            - name: SPRING_DATA_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: sjw-secrets, key: REDIS_PASSWORD }
+          ports:
+            - name: management
+              containerPort: 9081
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: management }
+            periodSeconds: 5
+            failureThreshold: 36
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: management }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: management }
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { memory: 768Mi }

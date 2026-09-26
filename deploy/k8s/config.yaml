@@ -1,0 +1,24 @@
+# 생산 기본값 (PROGRESS §5.0 3): v4 프롬프트(classpath 기본), L1 on, 승격 on, L2·라우팅 off, 공개 모드.
+# 비밀은 여기 두지 않는다 — sjw-secrets(create-secrets.sh).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sjw-config
+data:
+  SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/sjw
+  SPRING_DATA_REDIS_HOST: redis
+  NER_URL: http://ner:8100
+  NER_MODE: http
+  KB_MODE: file
+  KB_NAME: injo
+  GEMINI_MODEL: gemini-3.1-flash-lite
+  SJW_PUBLIC_MODE: "true"          # 키 없음 401 · 캐시 미스는 BYOK만 · 비동기/배치는 operator_access만
+  SJW_LLM_TIMEOUT_MS: "60000"
+  CACHE_EPOCH: "1"
+  CACHE_L1_ENABLED: "true"
+  CACHE_L2_ENABLED: "false"
+  ROUTING_ENABLED: "false"
+  TIER_UP_ENABLED: "true"
+  TIER_UP_MODEL: gemini-3.5-flash
+  # 컨테이너 메모리 limit 기준으로 힙을 잡는다 (JVM 기본 25%는 limit 768Mi에서 너무 작다)
+  JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=70 -XX:+ExitOnOutOfMemoryError

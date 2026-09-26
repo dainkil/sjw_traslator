@@ -1,0 +1,28 @@
+# 공개 진입점은 이것 하나. BYOK 키가 헤더로 오가므로 처음부터 TLS (cert-manager letsencrypt-prod).
+# 발급이 실패하면 tls 블록과 cluster-issuer를 잠시 빼고 HTTP로 먼저 연 뒤 이어서 처리한다 (§5.0).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sjw
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    # SSE(/translations/stream): 버퍼링하면 토큰이 한꺼번에 도착한다. 읽기 타임아웃은 SseEmitter(120s)보다 길게.
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "180"
+    nginx.ingress.kubernetes.io/proxy-body-size: "64k"   # 요청 본문은 원문 2,000자 상한 (TranslateRequest)
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [skala-gj4-sjw.skala-gj.com]
+      secretName: sjw-tls
+  rules:
+    - host: skala-gj4-sjw.skala-gj.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  name: http

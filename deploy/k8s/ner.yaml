@@ -1,0 +1,43 @@
+# NER ONNX INT8 (CPU, p50 8.3ms — GPU 배제 근거 ADR-003). 모델은 이미지에 구워져 있다.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ner
+spec:
+  selector:
+    app: ner
+  ports:
+    - name: http
+      port: 8100
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ner
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ner
+  template:
+    metadata:
+      labels:
+        app: ner
+    spec:
+      imagePullSecrets:
+        - name: harbor-cred
+      containers:
+        - name: ner
+          image: sjw-ner
+          ports:
+            - containerPort: 8100
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8100 }
+            periodSeconds: 10
+          startupProbe:
+            httpGet: { path: /healthz, port: 8100 }
+            periodSeconds: 5
+            failureThreshold: 24   # 모델 로드 최대 2분
+          resources:
+            requests: { cpu: 200m, memory: 512Mi }
+            limits: { memory: 1Gi }

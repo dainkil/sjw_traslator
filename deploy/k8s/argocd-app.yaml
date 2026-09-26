@@ -1,0 +1,21 @@
+# ArgoCD Application — kustomization 밖에 둔다 (자기 자신을 관리하지 않게). 최초 1회:
+#   kubectl apply -f deploy/k8s/argocd-app.yaml   (ArgoCD가 있는 네임스페이스·권한은 과정 안내에 따른다)
+# 저장소가 비공개면 ArgoCD에 저장소 자격증명 등록이 먼저다 (§5.0 0).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sjw
+  namespace: argocd
+spec:
+  project: skala-gj4
+  source:
+    repoURL: https://github.com/dainkil/sjw_traslator.git
+    targetRevision: main
+    path: deploy/k8s
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: skala-gj4
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
