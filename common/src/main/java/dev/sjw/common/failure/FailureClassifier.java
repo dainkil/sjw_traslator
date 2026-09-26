@@ -1,4 +1,4 @@
-package dev.sjw.worker.failure;
+package dev.sjw.common.failure;
 
 import dev.sjw.common.ner.NerUnavailableException;
 import dev.sjw.common.translate.LlmParseException;
@@ -30,6 +30,12 @@ public class FailureClassifier {
                 return ErrorClass.QUOTA_DAILY;
             }
             return ErrorClass.RATE_LIMITED;
+        }
+        // 404보다 먼저 — 키 거부 본문에 모델 경로가 섞여 와도 키 문제로 본다
+        if (msg.contains("api_key_invalid") || msg.contains("api key not valid")
+                || msg.contains("api key expired") || msg.contains("permission_denied")
+                || msg.contains("unauthenticated")) {
+            return ErrorClass.AUTH_FAILED;
         }
         if (msg.contains("404") || msg.contains("not_found") || msg.contains("no longer available")) {
             return ErrorClass.MODEL_UNAVAILABLE;

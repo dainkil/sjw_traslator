@@ -10,6 +10,7 @@ import dev.sjw.common.quality.QualityGate;
 import dev.sjw.common.translate.TranslationDtos.TranslateRequest;
 import dev.sjw.common.translate.TranslationDtos.TranslationResponse;
 import dev.sjw.common.translate.TranslationService;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.validation.Valid;
 import java.util.Optional;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -27,15 +28,17 @@ public class TranslationController {
     private final TenantGuard tenantGuard;
     private final TranslationCache cache;
     private final QualityGate qualityGate;
+    private final MeterRegistry meters;
 
     public TranslationController(TranslationService service, TranslatorFactory translatorFactory,
                                  TenantGuard tenantGuard, TranslationCache cache,
-                                 QualityGate qualityGate) {
+                                 QualityGate qualityGate, MeterRegistry meters) {
         this.service = service;
         this.translatorFactory = translatorFactory;
         this.tenantGuard = tenantGuard;
         this.cache = cache;
         this.qualityGate = qualityGate;
+        this.meters = meters;
     }
 
     /**
@@ -46,6 +49,17 @@ public class TranslationController {
         return (llmKey == null || llmKey.isBlank())
                 ? null
                 : translatorFactory.forModelWithKey(service.model(), llmKey);
+    }
+
+    /** worker와 같은 계측 이름·태그 — 대시보드가 경로를 가리지 않고 합산한다 (§5.0 1-4). */
+    private void recordCall(String tenantId, Integer tokensIn, Integer tokensOut) {
+        meters.counter("tenant.calls", "tenant", tenantId).increment();
+        if (tokensIn != null) {
+            meters.counter("llm.tokens", "direction", "in").increment(tokensIn);
+        }
+        if (tokensOut != null) {
+            meters.counter("llm.tokens", "direction", "out").increment(tokensOut);
+        }
     }
 
     /**
@@ -69,6 +83,7 @@ public class TranslationController {
             return cache.toResponse(hit.get(), (System.nanoTime() - start) / 1_000_000);
         }
 
+        tenantGuard.requireByok(llmKey);       // 공개 모드: 캐시 미스는 BYOK만 (§15.3)
         tenantGuard.ensureWithinCap(tenant);   // 과금은 LLM 직전 — 문 앞에서만 막는다
         var prep = service.prepare(req.text(), req.year());
 
@@ -89,6 +104,8 @@ public class TranslationController {
 
         // 적재 전 품질 게이트 (ADR-009: 게이트 통과분만). LLM 추가 호출 0회의 결정론 검사다.
         QualityGate.Verdict verdict = qualityGate.grade(resp);
+        recordCall(tenant.id(), resp.meta().tokensIn(), resp.meta().tokensOut());
+        meters.counter("translation.quality.grade", "grade", verdict.grade().name()).increment();
         if (byok == null && !translatorFactory.isFake(resp.meta().model())) {
             // BYOK 결과는 공용 캐시에 적재하지 않는다 — 요청자가 자기 키로 산 번역을
             // 다른 테넌트가 공짜로 받아가는 모양이 된다. 조회는 위에서 이미 허용했다.
@@ -134,6 +151,7 @@ public class TranslationController {
             return emitter;
         }
 
+        tenantGuard.requireByok(llmKey);
         tenantGuard.ensureWithinCap(tenant);
         var prep = service.prepare(req.text(), req.year());
         try {
@@ -163,6 +181,7 @@ public class TranslationController {
         }
 
         tenantGuard.charge(tenant, 1);
+        recordCall(tenant.id(), null, null);   // 스트림은 usage를 돌려받지 않는다 — 호출 수만
         Translator byok = pickTranslator(llmKey);
         var flux = byok == null ? service.translateStream(prep) : service.translateStream(prep, byok);
         flux.subscribe(

@@ -4,9 +4,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import dev.sjw.common.failure.ErrorClass;
+import dev.sjw.common.failure.FailureClassifier;
+import dev.sjw.common.failure.RetryAfterHint;
 import dev.sjw.common.llm.FakeLlmProperties;
 import dev.sjw.common.llm.FakeProvider;
-import dev.sjw.worker.rate.RetryAfterHint;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -43,5 +45,20 @@ class FakeProviderFailureContractTest {
         var e = assertThrows(FakeProvider.ProviderError.class,
                 () -> provider(null, null, 1.0).translator("m").call("x\n\ny"));
         assertEquals(ErrorClass.SERVER_ERROR, classifier.classify(e));
+    }
+
+    @Test
+    void 하드_타임아웃_초과는_TIMEOUT이고_타임아웃_시점에_끊긴다() {
+        var p = new FakeProvider(new FakeLlmProperties(5_000, 0, null, null, 0.0, 0.0, null),
+                java.time.Clock.systemUTC(), 50);
+        long start = System.nanoTime();
+        var e = assertThrows(FakeProvider.ProviderError.class, () -> p.translator("m").call("x\n\ny"));
+        long elapsedMs = (System.nanoTime() - start) / 1_000_000;
+        assertEquals(ErrorClass.TIMEOUT, classifier.classify(e));
+        assertTrue(elapsedMs < 2_000, "지연(5s) 전체가 아니라 타임아웃(50ms)에서 끊겨야 한다: " + elapsedMs + "ms");
+
+        var se = assertThrows(FakeProvider.ProviderError.class,
+                () -> p.translator("m").stream("x\n\ny").blockLast());
+        assertEquals(ErrorClass.TIMEOUT, classifier.classify(se));
     }
 }

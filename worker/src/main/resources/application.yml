@@ -12,6 +12,9 @@ spring:
             model: ${GEMINI_MODEL:gemini-3.1-flash-lite}
             temperature: 0.2
   datasource:
+    # 아래는 로컬 compose 기본값이다. 배포에선 env가 덮는다 (Spring relaxed binding, §5.0 1-5):
+    #   SPRING_DATASOURCE_URL / SPRING_DATASOURCE_PASSWORD, redis는 SPRING_DATA_REDIS_HOST / SPRING_DATA_REDIS_PASSWORD
+    # K8s에선 Secret(sjw-secrets)에서 주입 — 저장소에 비밀번호를 두지 않는다.
     url: jdbc:postgresql://localhost:5433/sjw
     username: sjw
     password: sjw
@@ -24,6 +27,8 @@ server:
 
 sjw:
   llm:
+    # LLM 하드 타임아웃 (§5.0 1-3). 넘기면 TIMEOUT → 재시도·서킷 경로. RUNNING 고착(26분 선례) 방지.
+    timeout-ms: ${SJW_LLM_TIMEOUT_MS:60000}
     # 모델 레지스트리 (M2.5) — api와 동일 블록. rate 버킷 키(모델별)·원장 단가의 단일 출처.
     active-model: ${GEMINI_MODEL:gemini-3.1-flash-lite}
     usd-krw: 1400                       # (추정) cost-model.md와 동일 파라미터
@@ -132,7 +137,14 @@ sjw:
     # version은 설정이 아니다 — 데이터 파일 체크섬에서 파생된다 (M3 캐시 무효화의 신뢰 근거)
 
 management:
+  # 관리 포트 분리 (§5.0 1-4): 공개 Service·Ingress는 앱 포트만 연다. 메트릭·health는 클러스터 안에서만.
+  server:
+    port: ${MANAGEMENT_PORT:9081}
   endpoints:
     web:
       exposure:
         include: health,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true   # /actuator/health/liveness·readiness — K8s probe용

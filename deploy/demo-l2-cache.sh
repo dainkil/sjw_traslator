@@ -39,7 +39,7 @@ wait_done() {
   echo TIMEOUT
 }
 counter() {
-  curl -s "localhost:8081/actuator/metrics/$1${2:+?tag=$2}" \
+  curl -s "localhost:9081/actuator/metrics/$1${2:+?tag=$2}" \
     | python3 -c "import json,sys; print(json.load(sys.stdin)['measurements'][0]['value'])" 2>/dev/null \
     || echo 0
 }

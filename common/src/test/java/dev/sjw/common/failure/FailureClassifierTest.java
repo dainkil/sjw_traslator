@@ -1,4 +1,4 @@
-package dev.sjw.worker.failure;
+package dev.sjw.common.failure;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -71,5 +71,14 @@ class FailureClassifierTest {
         var e = new RuntimeException("wrapper", new dev.sjw.common.ner.NerUnavailableException(
                 "NER 서버 호출 실패: request timed out", new RuntimeException("timed out")));
         assertEquals(ErrorClass.NER_UNAVAILABLE, c.classify(e));
+    }
+
+    @Test
+    void 잘못된_키는_AUTH_FAILED() {
+        // Developer API가 잘못된 키에 돌려주는 본문 형태 (400 INVALID_ARGUMENT + reason API_KEY_INVALID)
+        var e = new RuntimeException("400 Bad Request: API key not valid. Please pass a valid API key. "
+                + "[reason: API_KEY_INVALID]");
+        assertEquals(ErrorClass.AUTH_FAILED, c.classify(e));
+        assertEquals(ErrorClass.AUTH_FAILED, c.classify(new RuntimeException("403 PERMISSION_DENIED")));
     }
 }

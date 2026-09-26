@@ -18,7 +18,8 @@ public class BatchJobRepository {
             rs.getInt("total_count"),
             rs.getInt("done_count"),
             rs.getInt("failed_count"),
-            rs.getString("status"));
+            rs.getString("status"),
+            rs.getString("tenant_id"));
 
     private final JdbcClient jdbc;
 

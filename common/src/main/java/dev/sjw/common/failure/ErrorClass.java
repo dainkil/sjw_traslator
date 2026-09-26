@@ -1,4 +1,4 @@
-package dev.sjw.worker.failure;
+package dev.sjw.common.failure;
 
 /**
  * 실패 분류 (§6). 각 분류는 서로 다른 처리 경로를 갖는다.
@@ -16,6 +16,8 @@ public enum ErrorClass {
     SERVER_ERROR(true, false),
     /** 네트워크/응답 타임아웃 — 재시도 */
     TIMEOUT(true, false),
+    /** 키 거부 (400 API_KEY_INVALID / 403 PERMISSION_DENIED): 영구 — DLQ. 동기 경로에선 잘못된 BYOK 키 → 4xx */
+    AUTH_FAILED(false, true),
     /** 404 등 모델 자체 불가(단종·미제공): 영구 — DLQ */
     MODEL_UNAVAILABLE(false, true),
     /** 구조화 출력 파싱 실패: 호출은 발생(과금 기록 필수). 비결정성이라 1회 재시도 가치 있음 */

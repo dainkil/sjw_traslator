@@ -1,6 +1,8 @@
 package dev.sjw.common.llm;
 
+import com.google.genai.Client;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -17,14 +19,28 @@ public class LlmConfig {
 
     /** 프로세스 단위 싱글턴 — quota 창·난수·지연이 여기 산다 (호출마다 Translator가 새로 만들어져도 유지). */
     @Bean
-    public FakeProvider fakeProvider(FakeLlmProperties cfg) {
-        return new FakeProvider(cfg);
+    public FakeProvider fakeProvider(FakeLlmProperties cfg,
+                                     @Value("${sjw.llm.timeout-ms:60000}") int timeoutMs) {
+        return new FakeProvider(cfg, java.time.Clock.systemUTC(), timeoutMs);
+    }
+
+    /**
+     * 운영자 키 클라이언트 — 자동 구성의 Client(@ConditionalOnMissingBean)를 대체해 <b>하드 타임아웃</b>을 건다.
+     * 타임아웃이 없으면 응답 없는 호출 하나가 job을 RUNNING에 붙잡는다 (26분 선례, §5.0 1-3).
+     * 넘기면 예외 메시지의 "timeout"으로 {@code TIMEOUT}(일시 오류)에 분류되어 기존 재시도·서킷 경로를 탄다.
+     * Developer API 모드 전용이다 — Vertex 설정은 원래 금지다(ADR-005 §4.3).
+     */
+    @Bean
+    public Client googleGenAiClient(@Value("${spring.ai.google.genai.api-key}") String apiKey,
+                                    @Value("${sjw.llm.timeout-ms:60000}") int timeoutMs) {
+        return TranslatorFactory.genAiClient(apiKey, timeoutMs);
     }
 
     @Bean
     public TranslatorFactory translatorFactory(ChatClient.Builder builder, ModelRegistry registry,
-                                               FakeProvider fake) {
-        return new TranslatorFactory(builder, registry, fake);
+                                               FakeProvider fake,
+                                               @Value("${sjw.llm.timeout-ms:60000}") int timeoutMs) {
+        return new TranslatorFactory(builder, registry, fake, timeoutMs);
     }
 
     @Bean

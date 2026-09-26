@@ -13,6 +13,8 @@ cd "$(dirname "$0")/.."
 
 API=localhost:8080
 WORKER=localhost:8081
+WORKER_MGMT=localhost:9081   # actuator는 관리 포트에만 (§5.0 1-4)
+API_MGMT=localhost:9080
 REDIS="docker exec sjw-redis redis-cli"
 PSQL="docker exec sjw-postgres psql -U sjw -d sjw -t -A -c"
 
@@ -24,7 +26,7 @@ TIMEOUT="${TIMEOUT:-900}"
 OUT="${OUT:-/tmp/sjw-rate-timeline.tsv}"
 
 metric429() {
-  curl -s "$WORKER/actuator/metrics/llm.rate_limit.429" 2>/dev/null | python3 -c "
+  curl -s "$WORKER_MGMT/actuator/metrics/llm.rate_limit.429" 2>/dev/null | python3 -c "
 import json, sys
 try:
     print(int(json.load(sys.stdin)['measurements'][0]['value']))
@@ -34,8 +36,8 @@ except Exception:
 }
 
 echo "== 0) 전제 확인"
-curl -sf "$WORKER/actuator/health" > /dev/null || { echo "worker(:8081)가 없다"; exit 1; }
-curl -sf "$API/actuator/health"  > /dev/null 2>&1 || curl -sf "$API/api/v1/batches/00000000-0000-0000-0000-000000000000" > /dev/null 2>&1 || true
+curl -sf "$WORKER_MGMT/actuator/health" > /dev/null || { echo "worker(관리 :9081)가 없다"; exit 1; }
+curl -sf "$API_MGMT/actuator/health"  > /dev/null 2>&1 || curl -sf "$API/api/v1/batches/00000000-0000-0000-0000-000000000000" > /dev/null 2>&1 || true
 echo "   model=$MODEL, 문장=$N, 버킷=$BUCKET"
 
 echo "== 1) 버킷 초기화 (설정 initial-rpm에서 탐색 시작)"

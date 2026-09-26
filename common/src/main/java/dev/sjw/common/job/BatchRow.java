@@ -11,5 +11,6 @@ public record BatchRow(
         int totalCount,
         int doneCount,
         int failedCount,
-        String status   // RUNNING | PAUSED | COMPLETED | BUDGET_EXHAUSTED | QUOTA_PAUSED
+        String status,  // RUNNING | PAUSED | COMPLETED | BUDGET_EXHAUSTED | QUOTA_PAUSED
+        String tenantId // 소유 테넌트 — 조회·일시정지·재개의 소유권 검사 기준
 ) {}

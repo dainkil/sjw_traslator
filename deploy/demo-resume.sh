@@ -30,7 +30,7 @@ echo "   체크포인트: cursor=$($PSQL "SELECT cursor_checkpoint FROM batch_jo
 
 echo "== 4) worker 재시작"
 (set -a; source .env; set +a; nohup ./gradlew :worker:bootRun > /tmp/worker-resume.log 2>&1 &)
-until curl -s -o /dev/null -w '' localhost:8081/actuator/health 2>/dev/null; do sleep 2; done
+until curl -s -o /dev/null -w '' localhost:9081/actuator/health 2>/dev/null; do sleep 2; done
 echo "   worker UP"
 
 echo "== 5) 배치 완료 대기"

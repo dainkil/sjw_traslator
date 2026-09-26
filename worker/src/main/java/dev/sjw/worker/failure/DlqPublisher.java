@@ -1,5 +1,6 @@
 package dev.sjw.worker.failure;
 
+import dev.sjw.common.failure.ErrorClass;
 import dev.sjw.common.queue.QueueKeys;
 import java.time.OffsetDateTime;
 import java.util.Map;

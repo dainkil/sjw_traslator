@@ -78,6 +78,10 @@ public final class FakeTranslator implements Translator {
             }
             // 첫 토큰까지 latency, 그 뒤 청크 간격은 그 1/10 — 실 SSE의 "기다렸다가 흘러나오는" 모양
             long firstToken = provider.latencyMs();
+            if (provider.timesOut(firstToken)) {
+                return Mono.delay(Duration.ofMillis(provider.timeoutMs()))
+                        .then(Mono.<String>error(provider.timeout(modelId))).flux();
+            }
             Duration perChunk = Duration.ofMillis(Math.max(1, firstToken / 10));
             return Mono.delay(Duration.ofMillis(firstToken))
                     .thenMany(Flux.fromIterable(chunks).delayElements(perChunk));

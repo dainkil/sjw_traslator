@@ -1,4 +1,4 @@
-package dev.sjw.worker.rate;
+package dev.sjw.common.failure;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;

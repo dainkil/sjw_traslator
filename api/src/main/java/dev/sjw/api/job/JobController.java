@@ -54,11 +54,16 @@ public class JobController {
                                               @RequestHeader(value = "X-Api-Key", required = false)
                                               String apiKey) {
         var tenant = tenantGuard.resolve(apiKey);
+        tenantGuard.requireOperatorAccess(tenant);   // 비동기 경로는 운영자 키로 돈다
         if (idempotencyKey != null && !idempotencyKey.isBlank()) {
             var existing = jobs.findByIdempotencyKey(idempotencyKey);
             if (existing.isPresent()) {
                 // 같은 키 재제출 = 같은 job. 중복 발행·중복 과금 없음 (§6 멱등 키)
                 JobRow j = existing.get();
+                if (!tenantGuard.owns(tenant, j.tenantId())) {
+                    // 멱등 키는 전역 유일 — 남의 job id를 돌려주면 소유권 검사를 우회하는 통로가 된다
+                    return ResponseEntity.status(HttpStatus.CONFLICT).build();
+                }
                 return ResponseEntity.status(HttpStatus.ACCEPTED)
                         .body(new JobAccepted(j.id(), j.status().name()));
             }
@@ -73,8 +78,11 @@ public class JobController {
     }
 
     @GetMapping("/{jobId}")
-    public ResponseEntity<JobView> get(@PathVariable UUID jobId) {
+    public ResponseEntity<JobView> get(@PathVariable UUID jobId,
+                                       @RequestHeader(value = "X-Api-Key", required = false) String apiKey) {
+        var tenant = tenantGuard.resolve(apiKey);
         return jobs.findById(jobId)
+                .filter(j -> tenantGuard.owns(tenant, j.tenantId()))   // 남의 job은 404
                 .map(j -> ResponseEntity.ok(new JobView(
                         j.id(), j.status().name(),
                         j.status() == JobStatus.SUCCEEDED

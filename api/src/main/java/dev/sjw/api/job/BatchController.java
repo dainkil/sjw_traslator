@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -62,9 +63,10 @@ public class BatchController {
 
     @PostMapping
     public ResponseEntity<?> create(@Valid @RequestBody CreateBatch req,
-                                    @org.springframework.web.bind.annotation.RequestHeader(value = "X-Api-Key", required = false)
+                                    @RequestHeader(value = "X-Api-Key", required = false)
                                     String apiKey) throws IOException {
         var tenant = tenantGuard.resolve(apiKey);
+        tenantGuard.requireOperatorAccess(tenant);   // 배치는 운영자 키로 돈다 (BYOK 배치는 ADR-020 범위 밖)
         // 예산 사전 검증: 예상 호출 수(=limit, 캐시 0% 가정)가 예산을 넘으면 시작 전에 거부 (§5.3)
         if (req.limit() > req.budgetLimitCalls()) {
             return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(java.util.Map.of(
@@ -96,21 +98,30 @@ public class BatchController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<BatchView> get(@PathVariable UUID id) {
-        return batches.findById(id)
+    public ResponseEntity<BatchView> get(@PathVariable UUID id,
+                                         @RequestHeader(value = "X-Api-Key", required = false) String apiKey) {
+        return owned(id, apiKey)
                 .map(b -> ResponseEntity.ok(view(b)))
                 .orElse(ResponseEntity.notFound().build());
     }
 
     @PostMapping("/{id}/pause")
-    public ResponseEntity<?> pause(@PathVariable UUID id) {
+    public ResponseEntity<?> pause(@PathVariable UUID id,
+                                   @RequestHeader(value = "X-Api-Key", required = false) String apiKey) {
+        if (owned(id, apiKey).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
         boolean ok = batches.transition(id, "RUNNING", "PAUSED");
         return ok ? ResponseEntity.ok(java.util.Map.of("status", "PAUSED"))
                 : ResponseEntity.status(HttpStatus.CONFLICT).body(java.util.Map.of("error", "NOT_RUNNING"));
     }
 
     @PostMapping("/{id}/resume")
-    public ResponseEntity<?> resume(@PathVariable UUID id) {
+    public ResponseEntity<?> resume(@PathVariable UUID id,
+                                    @RequestHeader(value = "X-Api-Key", required = false) String apiKey) {
+        if (owned(id, apiKey).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
         boolean ok = batches.transition(id, "PAUSED", "RUNNING")
                 || batches.transition(id, "QUOTA_PAUSED", "RUNNING");
         if (!ok) {
@@ -120,6 +131,12 @@ public class BatchController {
         var retried = jobs.resetFailedToPending(id);
         retried.forEach(this::publishJob);
         return ResponseEntity.ok(java.util.Map.of("status", "RUNNING", "requeuedFailed", retried.size()));
+    }
+
+    /** 소유권 검사 — 남의 배치는 존재 자체를 드러내지 않는다 (403이 아니라 404). */
+    private java.util.Optional<BatchRow> owned(UUID id, String apiKey) {
+        var tenant = tenantGuard.resolve(apiKey);
+        return batches.findById(id).filter(b -> tenantGuard.owns(tenant, b.tenantId()));
     }
 
     private void publishJob(UUID jobId) {

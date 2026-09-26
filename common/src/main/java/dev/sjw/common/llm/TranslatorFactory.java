@@ -1,6 +1,7 @@
 package dev.sjw.common.llm;
 
 import com.google.genai.Client;
+import com.google.genai.types.HttpOptions;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.google.genai.GoogleGenAiChatModel;
 import org.springframework.ai.google.genai.GoogleGenAiChatOptions;
@@ -16,15 +17,34 @@ import org.springframework.ai.google.genai.GoogleGenAiChatOptions;
 public class TranslatorFactory {
 
     public static final String PROVIDER_FAKE = "fake";
+    public static final int DEFAULT_TIMEOUT_MS = 60_000;
 
     private final ChatClient.Builder builder;
     private final ModelRegistry registry;
     private final FakeProvider fake;
+    private final int timeoutMs;
 
     public TranslatorFactory(ChatClient.Builder builder, ModelRegistry registry, FakeProvider fake) {
+        this(builder, registry, fake, DEFAULT_TIMEOUT_MS);
+    }
+
+    public TranslatorFactory(ChatClient.Builder builder, ModelRegistry registry, FakeProvider fake,
+                             int timeoutMs) {
+        if (timeoutMs < 1) {
+            throw new IllegalArgumentException("LLM 타임아웃은 1ms 이상: " + timeoutMs);
+        }
         this.builder = builder;
         this.registry = registry;
         this.fake = fake;
+        this.timeoutMs = timeoutMs;
+    }
+
+    /** 운영자·BYOK 클라이언트 공통 — 하드 타임아웃(ms)을 건 Developer API 클라이언트. */
+    static Client genAiClient(String apiKey, int timeoutMs) {
+        return Client.builder()
+                .apiKey(apiKey)
+                .httpOptions(HttpOptions.builder().timeout(timeoutMs).build())
+                .build();
     }
 
     /** 운영자 키(자동 구성 ChatClient)로 — 티어 승격 등 내부 용도. */
@@ -62,7 +82,7 @@ public class TranslatorFactory {
             return fake.translator(spec.id());   // 키가 필요 없다 — 저장·로깅 금지 규칙은 그대로 지켜진다 (안 쓰니까)
         }
         var chatModel = GoogleGenAiChatModel.builder()
-                .genAiClient(Client.builder().apiKey(llmApiKey).build())
+                .genAiClient(genAiClient(llmApiKey, timeoutMs))
                 .options(GoogleGenAiChatOptions.builder().model(spec.id()).temperature(0.2).build())
                 .build();
         return new GoogleGenAiTranslator(ChatClient.builder(chatModel), spec.id());

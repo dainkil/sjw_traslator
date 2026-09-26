@@ -5,6 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.sjw.common.cache.CacheLevel;
 import dev.sjw.common.cache.CachedTranslation;
 import dev.sjw.common.cache.TranslationCache;
+import dev.sjw.common.failure.ErrorClass;
+import dev.sjw.common.failure.FailureClassifier;
+import dev.sjw.common.failure.RetryAfterHint;
 import dev.sjw.common.job.BatchJobRepository;
 import dev.sjw.common.job.CostLedgerRepository;
 import dev.sjw.common.job.JobRow;
@@ -20,12 +23,10 @@ import dev.sjw.common.tenant.Tenant;
 import dev.sjw.common.translate.LlmParseException;
 import dev.sjw.common.translate.TranslationDtos.TranslationResponse;
 import dev.sjw.common.translate.TranslationService;
+import dev.sjw.common.util.SecretMasker;
 import dev.sjw.worker.failure.DlqPublisher;
-import dev.sjw.worker.failure.ErrorClass;
-import dev.sjw.worker.failure.FailureClassifier;
 import dev.sjw.worker.rate.AdaptiveRateLimiter;
 import dev.sjw.worker.rate.RateLimitWaitTimeoutException;
-import dev.sjw.worker.rate.RetryAfterHint;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
@@ -451,7 +452,7 @@ public class JobProcessor {
         while (root.getCause() != null && root.getCause() != root) {
             root = root.getCause();
         }
-        String m = String.valueOf(root.getMessage());
+        String m = SecretMasker.mask(String.valueOf(root.getMessage()), null);   // DLQ·로그에 키가 실리지 않게
         return root.getClass().getSimpleName() + ": " + m.substring(0, Math.min(200, m.length()));
     }
 }

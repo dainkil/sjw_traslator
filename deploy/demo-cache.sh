@@ -64,16 +64,15 @@ curl -s -X POST $API/api/v1/translations/sync -H 'Content-Type: application/json
 
 echo
 echo "== 5) 메트릭 (§9.1) — 비동기 경로는 worker, 동기 경로는 api가 센다"
-# NOTE: /actuator/prometheus는 아직 404다 (micrometer-registry-prometheus 미도입 —
-#       Grafana 대시보드를 세우는 M5의 일). 카운터 자체는 actuator/metrics로 확인된다.
+# actuator는 관리 포트(api 9080 / worker 9081)에만 있다 (§5.0 1-4). /actuator/prometheus도 거기서 열린다.
 counter() {
   curl -s "$1/actuator/metrics/$2" \
     | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['measurements'][0]['value'])" 2>/dev/null \
     || echo "0 (없음)"
 }
-echo "   worker translation.cache.hit  = $(counter localhost:8081 translation.cache.hit)"
-echo "   worker translation.cache.miss = $(counter localhost:8081 translation.cache.miss)"
-echo "   api    translation.cache.hit  = $(counter localhost:8080 translation.cache.hit)"
+echo "   worker translation.cache.hit  = $(counter localhost:9081 translation.cache.hit)"
+echo "   worker translation.cache.miss = $(counter localhost:9081 translation.cache.miss)"
+echo "   api    translation.cache.hit  = $(counter localhost:9080 translation.cache.hit)"
 
 echo
 echo "== 6) 무효화: 키를 이루는 축이 바뀌면 히트가 사라진다"

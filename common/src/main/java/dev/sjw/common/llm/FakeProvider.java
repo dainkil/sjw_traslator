@@ -38,15 +38,21 @@ public class FakeProvider {
     private final Clock clock;
     private final Random random; // seed가 있으면 공유 Random(동기화), 없으면 ThreadLocalRandom
     private final Map<String, Window> windows = new ConcurrentHashMap<>();
+    private final long timeoutMs; // 실 클라이언트의 하드 타임아웃을 흉내 낸다. 0 = 없음
 
     public FakeProvider(FakeLlmProperties cfg) {
         this(cfg, Clock.systemUTC());
     }
 
     public FakeProvider(FakeLlmProperties cfg, Clock clock) {
+        this(cfg, clock, 0);
+    }
+
+    public FakeProvider(FakeLlmProperties cfg, Clock clock, long timeoutMs) {
         this.cfg = cfg;
         this.clock = clock;
         this.random = cfg.seed() == null ? null : new Random(cfg.seed());
+        this.timeoutMs = timeoutMs;
     }
 
     public FakeLlmProperties config() {
@@ -63,7 +69,12 @@ public class FakeProvider {
      */
     void admit(String modelId) {
         window(modelId).admit(Instant.now(clock), modelId);
-        sleep(latencyMs());
+        long latency = latencyMs();
+        if (timesOut(latency)) {
+            sleep(timeoutMs);
+            throw timeout(modelId);
+        }
+        sleep(latency);
         if (chance(cfg.errorRate())) {
             throw new ProviderError("503 UNAVAILABLE. The model is overloaded. Please try again later. "
                     + "[fake provider, model: " + modelId + "]");
@@ -77,6 +88,21 @@ public class FakeProvider {
             throw new ProviderError("503 UNAVAILABLE. The model is overloaded. Please try again later. "
                     + "[fake provider, model: " + modelId + "]");
         }
+    }
+
+    /** 지연이 하드 타임아웃을 넘는가 — 넘으면 실 클라이언트처럼 타임아웃 시점에 끊는다. */
+    boolean timesOut(long latencyMs) {
+        return timeoutMs > 0 && latencyMs > timeoutMs;
+    }
+
+    long timeoutMs() {
+        return timeoutMs;
+    }
+
+    /** 메시지의 "timed out"이 분류 계약이다 — {@code FailureClassifier}가 TIMEOUT으로 가른다. */
+    ProviderError timeout(String modelId) {
+        return new ProviderError("Request timed out after " + timeoutMs + "ms [fake provider, model: "
+                + modelId + "]");
     }
 
     long latencyMs() {

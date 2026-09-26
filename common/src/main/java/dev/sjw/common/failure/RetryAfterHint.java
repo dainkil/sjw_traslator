@@ -1,4 +1,4 @@
-package dev.sjw.worker.rate;
+package dev.sjw.common.failure;
 
 import java.time.Duration;
 import java.util.Optional;
